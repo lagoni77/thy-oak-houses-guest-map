@@ -4,7 +4,7 @@
 //
 // SETUP CHECKLIST:
 //   1. Create a sheet named "GuestData" with columns:
-//      ID | Name | CheckIn | CheckOut | Location | Lat | Lng | EmailID
+//      Listing | ID | Name | CheckIn | CheckOut | Location | Lat | Lng | EmailID | Nights | Payout
 //   2. Enable the Gmail API:
 //      Left sidebar → Services (+) → Gmail API → Add
 //   3. Deploy as Web App:
@@ -19,16 +19,17 @@ const SHEET_NAME = 'GuestData';
 
 // Column indices (1-based) — must match your sheet header order
 const COL = {
-  ID:       1,
-  NAME:     2,
-  CHECK_IN: 3,
-  CHECK_OUT:4,
-  LOCATION: 5,
-  LAT:      6,
-  LNG:      7,
-  EMAIL_ID: 8,
-  NIGHTS:   9,
-  PAYOUT:   10
+  LISTING:  1,  // NEW: Airbnb listing name
+  ID:       2,
+  NAME:     3,
+  CHECK_IN: 4,
+  CHECK_OUT:5,
+  LOCATION: 6,
+  LAT:      7,
+  LNG:      8,
+  EMAIL_ID: 9,
+  NIGHTS:   10,
+  PAYOUT:   11
 };
 
 // Airbnb Gmail search query targeting both English and Danish subjects
@@ -92,6 +93,7 @@ function syncAirbnbEmails() {
       const rowId = `TOH-${emailId.substring(0, 8).toUpperCase()}`;
 
       sheet.appendRow([
+        parsed.listing,
         rowId,
         parsed.name,
         parsed.checkIn,
@@ -124,13 +126,14 @@ function syncAirbnbEmails() {
 function parseAirbnbEmail(body, subject, emailDate) {
   try {
     let name = null;
+    let listing = null;
     let location = null;
     let checkInDate = null;
     let checkOutDate = null;
 
     // ── GUEST NAME ──────────────────────────────────────────────────────────
     // 1. Try Danish subject format: "Bekræftet reservation – Mathias Kaisner ankommer..."
-    let match = subject.match(/Bekræftet reservation\s*–\s*(.*?)\s+ankommer/i);
+    let match = subject.match(/Bekræftet reservation\s*[–-]\s*(.*?)\s+ankommer/i);
     if (match) name = match[1].trim();
 
     if (!name) {
@@ -153,6 +156,21 @@ function parseAirbnbEmail(body, subject, emailDate) {
     }
     
     if (!name) name = 'Unknown Guest';
+
+    // ── LISTING NAME ────────────────────────────────────────────────────────
+    // Airbnb emails list the property after the guest message block.
+    // Typically on a line by itself, e.g. "Ocean Oak House | Stor Naturgrund | 1 km til havet"
+    // Strategy: look for a line containing " | " (pipe separator Airbnb uses for listing subtitles)
+    const listingPipeMatch = body.match(/^([^\n|]+(?:\s*\|\s*[^\n|]+)+)$/m);
+    if (listingPipeMatch) {
+      listing = listingPipeMatch[1].trim();
+    } else {
+      // Fallback: look for the line after "Hej Brian," block and before "Indtjekning"
+      // Try to find listing name between the guest message and the booking details
+      const listingFallback = body.match(/(?:ankommer|arriving)[^\n]*\n[\s\S]*?\n([^\n]{10,80})\n[\s\S]*?(?:Helt hjem|Privat værelse|Delt værelse|Entire home|Private room)/im);
+      listing = listingFallback ? listingFallback[1].trim() : 'Unknown Listing';
+    }
+    if (!listing || listing.length > 120) listing = 'Unknown Listing';
 
     // ── LOCATION ────────────────────────────────────────────────────────────
     // 1. In Danish emails, location is directly below "Identitet bekræftet..."
@@ -213,19 +231,50 @@ function parseAirbnbEmail(body, subject, emailDate) {
       nights = Math.round((checkOutDate - checkInDate) / msPerDay);
     }
     
-    // ── PAYOUT (BOOKING VALUE) ──────────────────────────────────────────────
+    // ── PAYOUT (HOST EARNINGS) ──────────────────────────────────────────────
+    // getPlainBody() renders HTML table rows differently depending on the email:
+    //   Same line:  "Du tjener    9.021,75 kr"  (most common from Airbnb)
+    //   Next line:  "Du tjener\n9.021,75 kr"
+    //   With \r\n: "Du tjener\r\n9.021,75 kr"
+    // Danish format uses . as thousands sep and , as decimal: 9.021,75
+    // The regex [\d.,]+ covers both Danish (9.021,75) and English (9,021.75) formats.
     let payout = '0';
-    match = body.match(/Du tjener[^\n]*\s*\n+\s*([\d\.,]+\s*kr)/i);
-    if (!match) match = body.match(/I alt[^\n]*\s*\n+\s*([\d\.,]+\s*kr)/i);
-    if (!match) match = body.match(/Payout[^\n]*\s*\n+\s*([$£€]?[\d\.,]+)/i);
-    if (match) {
-      payout = match[1].trim();
+
+    // Strategy 1: same line — "Du tjener   9.021,75 kr" (whitespace/tab separated)
+    match = body.match(/Du tjener\s+([\d.,]+\s*kr)/i);
+    if (match) payout = match[1].trim();
+
+    if (payout === '0') {
+      // Strategy 2: next line (\n or \r\n), with optional leading whitespace
+      match = body.match(/Du tjener[^\S\r\n]*[\r\n]+[^\S\r\n]*([\d.,]+\s*kr)/i);
+      if (match) payout = match[1].trim();
     }
+
+    if (payout === '0') {
+      // Strategy 3: any whitespace between label and value (covers tabs too)
+      match = body.match(/Du tjener[\s\S]{0,30}?([\d.,]{4,}\s*kr)/i);
+      if (match) payout = match[1].trim();
+    }
+
+    if (payout === '0') {
+      // Strategy 4: English "You earn" variant
+      match = body.match(/You earn\s+([\d.,]+)/i);
+      if (!match) match = body.match(/You earn[^\S\r\n]*[\r\n]+[^\S\r\n]*([\d.,]+)/i);
+      if (match) payout = match[1].trim();
+    }
+
+    if (payout === '0') {
+      // Strategy 5: generic Payout label
+      match = body.match(/Payout[^\S\r\n]*[\r\n]+[^\S\r\n]*([$£€]?[\d.,]+)/i);
+      if (match) payout = match[1].trim();
+    }
+
+    Logger.log(`Parsed payout: "${payout}"`);
 
     const checkInStr  = Utilities.formatDate(checkInDate, 'UTC', 'yyyy-MM-dd');
     const checkOutStr = Utilities.formatDate(checkOutDate, 'UTC', 'yyyy-MM-dd');
 
-    return { name, checkIn: checkInStr, checkOut: checkOutStr, location, nights, payout };
+    return { listing, name, checkIn: checkInStr, checkOut: checkOutStr, location, nights, payout };
 
   } catch (e) {
     Logger.log(`parseAirbnbEmail error: ${e.message}`);
@@ -326,6 +375,7 @@ function doGet(e) {
     if (!row[COL.NAME - 1]) continue;
 
     guests.push({
+      Listing:  row[COL.LISTING  - 1] || '',
       ID:       row[COL.ID       - 1],
       Name:     row[COL.NAME     - 1],
       CheckIn:  row[COL.CHECK_IN - 1],
@@ -378,11 +428,11 @@ function setupSheet() {
     Logger.log('Renamed default sheet to: ' + SHEET_NAME);
   }
 
-  sheet.getRange(1, 1, 1, 10).setValues([[
-    'ID', 'Name', 'CheckIn', 'CheckOut', 'Location', 'Lat', 'Lng', 'EmailID', 'NIGHTS', 'PAYOUT'
+  sheet.getRange(1, 1, 1, 11).setValues([[
+    'Listing', 'ID', 'Name', 'CheckIn', 'CheckOut', 'Location', 'Lat', 'Lng', 'EmailID', 'Nights', 'Payout'
   ]]);
 
-  sheet.getRange(1, 1, 1, 10)
+  sheet.getRange(1, 1, 1, 11)
     .setBackground('#1a3327')
     .setFontColor('#4ade80')
     .setFontWeight('bold');
@@ -395,6 +445,7 @@ function testAddSampleGuest() {
   const sheet = getSheet();
   const coords = getOrGeocodeLocation('Copenhagen, Denmark', sheet);
   sheet.appendRow([
+    'Ocean Oak House | Stor Naturgrund | 1 km til havet',
     'TOH-TEST001',
     'Test Guest',
     '2025-06-01',
@@ -412,4 +463,44 @@ function testAddSampleGuest() {
 function resetScanDate() {
   PropertiesService.getScriptProperties().deleteProperty('LAST_SCAN_DATE');
   Logger.log('SUCCESS! Din LAST_SCAN_DATE er nu slettet. Du kan nu køre syncAirbnbEmails igen, og den vil trække alt det gamle.');
+}
+
+// ── DEBUG TOOL ───────────────────────────────────────────────────────────────
+/**
+ * Run this function manually in Apps Script to inspect the raw plain-text body
+ * of the most recent Airbnb confirmation email around the "Du tjener" section.
+ * Check the Logs (View → Logs) after running.
+ */
+function debugPayoutSection() {
+  const query = 'from:automated@airbnb.com subject:"Bekræftet reservation" newer_than:30d';
+  const threads = GmailApp.search(query, 0, 1);
+  if (!threads.length) {
+    Logger.log('No Airbnb emails found with that query.');
+    return;
+  }
+
+  const message  = threads[0].getMessages()[0];
+  const body     = message.getPlainBody();
+  const subject  = message.getSubject();
+  Logger.log('Subject: ' + subject);
+  Logger.log('Body length: ' + body.length + ' chars');
+
+  // Find "Du tjener" and show 200 chars around it
+  const idx = body.search(/Du tjener/i);
+  if (idx === -1) {
+    Logger.log('"Du tjener" NOT found in plain body!');
+    Logger.log('Last 500 chars of body: ' + body.slice(-500));
+    return;
+  }
+
+  const snippet = body.slice(Math.max(0, idx - 50), idx + 200);
+  // Show invisible characters as visible markers
+  const visible = snippet
+    .replace(/\r\n/g, '↵\n')
+    .replace(/\n/g, '↵\n')
+    .replace(/\t/g, '→')
+    .replace(/ /g, '·');
+
+  Logger.log('=== RAW BODY (50 chars before → 200 chars after "Du tjener") ===');
+  Logger.log(visible);
 }
