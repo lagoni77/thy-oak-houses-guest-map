@@ -26,7 +26,9 @@ const COL = {
   LOCATION: 5,
   LAT:      6,
   LNG:      7,
-  EMAIL_ID: 8
+  EMAIL_ID: 8,
+  NIGHTS:   9,
+  PAYOUT:   10
 };
 
 // Airbnb Gmail search query targeting both English and Danish subjects
@@ -96,7 +98,9 @@ function syncAirbnbEmails() {
         parsed.location,
         coords.lat,
         coords.lng,
-        emailId
+        emailId,
+        parsed.nights,
+        parsed.payout
       ]);
 
       existingEmailIds.add(emailId);
@@ -196,10 +200,31 @@ function parseAirbnbEmail(body, subject, emailDate) {
       return null;
     }
 
+    // ── NIGHTS ──────────────────────────────────────────────────────────────
+    let nights = 0;
+    match = body.match(/(\d+)\s+nætter/i);
+    if (!match) match = body.match(/(\d+)\s+nights/i);
+    if (match) {
+      nights = parseInt(match[1]);
+    } else {
+      // Calculate from dates if text extraction fails
+      const msPerDay = 1000 * 60 * 60 * 24;
+      nights = Math.round((checkOutDate - checkInDate) / msPerDay);
+    }
+    
+    // ── PAYOUT (BOOKING VALUE) ──────────────────────────────────────────────
+    let payout = '0';
+    match = body.match(/Du tjener[^\n]*\s*\n+\s*([\d\.,]+\s*kr)/i);
+    if (!match) match = body.match(/I alt[^\n]*\s*\n+\s*([\d\.,]+\s*kr)/i);
+    if (!match) match = body.match(/Payout[^\n]*\s*\n+\s*([$£€]?[\d\.,]+)/i);
+    if (match) {
+      payout = match[1].trim();
+    }
+
     const checkInStr  = Utilities.formatDate(checkInDate, 'UTC', 'yyyy-MM-dd');
     const checkOutStr = Utilities.formatDate(checkOutDate, 'UTC', 'yyyy-MM-dd');
 
-    return { name, checkIn: checkInStr, checkOut: checkOutStr, location };
+    return { name, checkIn: checkInStr, checkOut: checkOutStr, location, nights, payout };
 
   } catch (e) {
     Logger.log(`parseAirbnbEmail error: ${e.message}`);
@@ -306,7 +331,9 @@ function doGet(e) {
       CheckOut: row[COL.CHECK_OUT- 1],
       Location: row[COL.LOCATION - 1],
       Lat:      row[COL.LAT      - 1],
-      Lng:      row[COL.LNG      - 1]
+      Lng:      row[COL.LNG      - 1],
+      Nights:   row[COL.NIGHTS   - 1] || 0,
+      Payout:   row[COL.PAYOUT   - 1] || '0'
     });
   }
 
@@ -350,11 +377,11 @@ function setupSheet() {
     Logger.log('Renamed default sheet to: ' + SHEET_NAME);
   }
 
-  sheet.getRange(1, 1, 1, 8).setValues([[
-    'ID', 'Name', 'CheckIn', 'CheckOut', 'Location', 'Lat', 'Lng', 'EmailID'
+  sheet.getRange(1, 1, 1, 10).setValues([[
+    'ID', 'Name', 'CheckIn', 'CheckOut', 'Location', 'Lat', 'Lng', 'EmailID', 'NIGHTS', 'PAYOUT'
   ]]);
 
-  sheet.getRange(1, 1, 1, 8)
+  sheet.getRange(1, 1, 1, 10)
     .setBackground('#1a3327')
     .setFontColor('#4ade80')
     .setFontWeight('bold');
@@ -374,7 +401,9 @@ function testAddSampleGuest() {
     'Copenhagen, Denmark',
     coords.lat,
     coords.lng,
-    'TEST-EMAIL-ID-001'
+    'TEST-EMAIL-ID-001',
+    6,
+    '5000,00 kr'
   ]);
   Logger.log('Sample guest added!');
 }
