@@ -1,611 +1,379 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="da">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Guest Map · Thy Oak Houses</title>
-  <meta name="description" content="See where guests of Thy Oak Houses come from around the world.">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thy Oak Houses — Gæstekort</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; padding: 20px; }
 
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  .header { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 10px; border-bottom: 1px solid #21262d; padding-bottom: 14px; margin-bottom: 14px; }
+  h1 { font-size: 20px; font-weight: 600; color: #f0f6fc; }
+  .subtitle { font-size: 11px; color: #4a6080; letter-spacing: 0.08em; margin-top: 3px; }
 
-  <!-- Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  .stats { display: flex; gap: 8px; flex-wrap: wrap; }
+  .stat { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 6px 14px; }
+  .stat-label { font-size: 9px; color: #4a6080; text-transform: uppercase; letter-spacing: 0.1em; }
+  .stat-value { font-size: 13px; font-weight: 600; color: #f0f6fc; margin-top: 1px; }
 
-  <style>
-    :root {
-      --bg:        #0b1a14;
-      --surface:   #122318;
-      --surface2:  #1a3327;
-      --accent:    #4ade80;
-      --accent2:   #22c55e;
-      --text:      #e8f5ee;
-      --muted:     #7aad8e;
-      --border:    rgba(74,222,128,0.15);
-      --glow:      rgba(74,222,128,0.25);
-    }
+  #filters { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 12px; }
+  .filter-btn { padding: 3px 10px; border-radius: 20px; border: 1px solid #21262d; background: transparent; color: #4a6080; font-size: 11px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
 
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  #map { height: 520px; border-radius: 12px; border: 1px solid #21262d; }
 
-    body {
-      font-family: 'Outfit', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
+  #legend { display: flex; gap: 14px; margin-top: 12px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #4a6080; cursor: pointer; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
-    /* ── HEADER ── */
-    header {
-      padding: 20px 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid var(--border);
-      background: rgba(11,26,20,0.85);
-      backdrop-filter: blur(12px);
-      position: relative;
-      z-index: 1000;
-    }
+  .leaflet-popup-content-wrapper {
+    background: #0d1117 !important;
+    border: 1px solid #30363d !important;
+    color: #e6edf3 !important;
+    border-radius: 10px !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6) !important;
+  }
+  .leaflet-popup-tip { background: #0d1117 !important; }
+  .leaflet-popup-content { margin: 10px 14px !important; }
+  .pop-city { font-size: 15px; font-weight: 600; color: #f0f6fc; }
+  .pop-country { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 7px; }
+  .pop-stats { font-size: 13px; color: #c9d1d9; line-height: 1.9; }
 
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      text-decoration: none;
-    }
+  .leaflet-control-zoom a { background: #161b22 !important; color: #e6edf3 !important; border-color: #30363d !important; }
+  .leaflet-control-attribution { background: rgba(13,17,23,0.8) !important; color: #4a6080 !important; }
+  .leaflet-control-attribution a { color: #4a6080 !important; }
 
-    .logo-icon {
-      width: 38px;
-      height: 38px;
-      background: linear-gradient(135deg, var(--accent2), #166534);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-    }
-
-    .logo-text {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .logo-text span:first-child {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text);
-      letter-spacing: 0.05em;
-    }
-
-    .logo-text span:last-child {
-      font-size: 11px;
-      color: var(--muted);
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-    }
-
-    /* ── STATS BAR ── */
-    .stats-bar {
-      display: flex;
-      gap: 24px;
-      align-items: center;
-    }
-
-    .stat {
-      text-align: center;
-    }
-
-    .stat-value {
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--accent);
-      line-height: 1;
-    }
-
-    .stat-label {
-      font-size: 11px;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      margin-top: 2px;
-    }
-
-    .stat-divider {
-      width: 1px;
-      height: 32px;
-      background: var(--border);
-    }
-
-    /* ── CONTROLS ── */
-    .controls {
-      padding: 16px 32px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-    }
-
-    .controls-label {
-      font-size: 12px;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      margin-right: 4px;
-    }
-
-    .filter-btn {
-      padding: 6px 18px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: transparent;
-      color: var(--muted);
-      font-family: 'Outfit', sans-serif;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-
-    .filter-btn:hover {
-      border-color: var(--accent);
-      color: var(--accent);
-    }
-
-    .filter-btn.active {
-      background: var(--accent2);
-      border-color: var(--accent2);
-      color: #0b1a14;
-      font-weight: 600;
-    }
-
-    .spacer { flex: 1; }
-
-    .last-updated {
-      font-size: 11px;
-      color: var(--muted);
-    }
-
-    .dot {
-      display: inline-block;
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--accent);
-      margin-right: 6px;
-      animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.3; }
-    }
-
-    /* ── MAP ── */
-    #map {
-      flex: 1;
-      min-height: 0;
-      z-index: 1;
-    }
-
-    /* Override Leaflet for dark theme */
-    .leaflet-tile-pane { filter: brightness(0.7) saturate(0.6); }
-
-    .leaflet-popup-content-wrapper {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--glow);
-      color: var(--text);
-    }
-
-    .leaflet-popup-tip {
-      background: var(--surface2);
-    }
-
-    .leaflet-popup-close-button {
-      color: var(--muted) !important;
-    }
-
-    .popup-content {
-      padding: 4px 2px;
-      min-width: 180px;
-    }
-
-    .popup-name {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--accent);
-      margin-bottom: 6px;
-    }
-
-    .popup-row {
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 3px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .popup-row span { color: var(--text); }
-
-    .popup-location {
-      font-size: 12px;
-      color: var(--muted);
-      margin-top: 6px;
-      padding-top: 6px;
-      border-top: 1px solid var(--border);
-    }
-
-    /* ── LOADING & ERROR ── */
-    #overlay {
-      position: fixed;
-      inset: 0;
-      background: var(--bg);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-      gap: 16px;
-      transition: opacity 0.5s ease;
-    }
-
-    #overlay.hidden {
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    .spinner {
-      width: 48px;
-      height: 48px;
-      border: 3px solid var(--surface2);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    #overlay p {
-      font-size: 14px;
-      color: var(--muted);
-    }
-
-    /* Custom marker */
-    .custom-marker {
-      width: 24px;
-      height: 24px;
-      background: var(--accent);
-      border: 2px solid #0b1a14;
-      border-radius: 50%;
-      box-shadow: 0 0 0 3px var(--glow), 0 4px 12px rgba(0,0,0,0.4);
-      transition: transform 0.2s;
-    }
-
-    .custom-marker:hover { transform: scale(1.3); }
-
-    /* ── FOOTER ── */
-    .footer-strip {
-      padding: 10px 32px;
-      font-size: 11px;
-      color: var(--muted);
-      border-top: 1px solid var(--border);
-      background: var(--surface);
-      display: flex;
-      justify-content: space-between;
-    }
-
-    /* ── RESPONSIVE ── */
-    @media (max-width: 640px) {
-      header { padding: 14px 16px; }
-      .stats-bar { gap: 12px; }
-      .stat-value { font-size: 18px; }
-      .controls { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
-      .footer-strip { padding: 8px 16px; flex-direction: column; gap: 2px; }
-    }
-  </style>
+  #loading-overlay { position: fixed; inset: 0; background: rgba(13,17,23,0.9); z-index: 9999; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #4a6080; transition: opacity 0.5s; }
+</style>
 </head>
 <body>
 
-<!-- Loading overlay -->
-<div id="overlay">
-  <div class="spinner"></div>
-  <p>Loading guest data…</p>
-</div>
+<div id="loading-overlay">Henter de nyeste data...</div>
 
-<!-- Header -->
-<header>
-  <a class="logo" href="https://thy-oak-houses.vercel.app" target="_blank">
-    <div class="logo-icon">🌿</div>
-    <div class="logo-text">
-      <span>Thy Oak Houses</span>
-      <span>Guest World Map</span>
-    </div>
-  </a>
-  <div class="stats-bar">
-    <div class="stat">
-      <div class="stat-value" id="stat-guests">–</div>
-      <div class="stat-label">Guests</div>
-    </div>
-    <div class="stat-divider"></div>
-    <div class="stat">
-      <div class="stat-value" id="stat-countries">–</div>
-      <div class="stat-label">Countries</div>
-    </div>
-    <div class="stat-divider"></div>
-    <div class="stat">
-      <div class="stat-value" id="stat-nights">–</div>
-      <div class="stat-label">Nights hosted</div>
-    </div>
-    <div class="stat-divider"></div>
-    <div class="stat">
-      <div class="stat-value" id="stat-earnings">–</div>
-      <div class="stat-label">Earnings (DKK)</div>
-    </div>
+<div class="header">
+  <div>
+    <h1>🌲 Thy Oak Houses — Gæstekort</h1>
+    <p class="subtitle" id="subtitle-text">HENTER DATA...</p>
   </div>
-</header>
-
-<!-- Controls -->
-<div class="controls">
-  <span class="controls-label">Show:</span>
-  <button class="filter-btn active" id="btn-all"       onclick="setFilter('all')">All time</button>
-  <button class="filter-btn"        id="btn-6months"   onclick="setFilter('6months')">Last 6 months</button>
-  <button class="filter-btn"        id="btn-3months"   onclick="setFilter('3months')">Last 3 months</button>
-  <div class="spacer"></div>
-  <div class="last-updated">
-    <span class="dot"></span>
-    <span id="last-updated-text">Syncing…</span>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Gæster</div><div class="stat-value" id="s-guests">0</div></div>
+    <div class="stat"><div class="stat-label">Top by</div><div class="stat-value" id="s-top">—</div></div>
+    <div class="stat"><div class="stat-label">Bedst kr/book</div><div class="stat-value" id="s-kr">—</div></div>
   </div>
 </div>
 
-<!-- Map -->
-<div id="map"></div>
-
-<!-- Footer -->
-<div class="footer-strip">
-  <span>Thy Oak Houses · Thy, Denmark</span>
-  <span>Data sourced from Airbnb reservations</span>
+<div id="filters"></div>
+<div style="display:flex;gap:14px;align-items:flex-start;">
+  <div style="flex:1;min-width:0;">
+    <div id="map"></div>
+  </div>
+  <div id="leaderboard" style="width:200px;flex-shrink:0;background:#161b22;border:1px solid #21262d;border-radius:12px;padding:14px;"></div>
 </div>
-
-<!-- Leaflet JS -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<div id="legend"></div>
 
 <script>
-  // ─────────────────────────────────────────────────────────────
-  // CONFIGURATION — Replace with your deployed Apps Script URL
-  // ─────────────────────────────────────────────────────────────
-  const API_URL = 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE';
-  // Example: 'https://script.google.com/macros/s/AKfycbx.../exec'
+// ============================================================
+// DATA FETCH FRA DIN APPS SCRIPT URL HERUNDER
+// ============================================================
+const API_URL = 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE'; // SÆT DIN URL HER!
 
-  // ─────────────────────────────────────────────────────────────
-  // MAP SETUP
-  // ─────────────────────────────────────────────────────────────
-  const map = L.map('map', {
-    center: [48, 15],
-    zoom: 3,
-    zoomControl: true,
-    attributionControl: true
+let GUESTS = [];
+
+const OAK = { lat: 57.04, lng: 8.42, name: "Oak House, Thy" };
+
+const COLORS = {
+  "Tyskland":  "#E63946",
+  "Danmark":   "#4895EF",
+  "Schweiz":   "#2A9D8F",
+  "Holland":   "#F4D35E",
+  "Østrig":    "#F4A261",
+  "Belgien":   "#A8DADC",
+  "Frankrig":  "#9B5DE5",
+  "Finland":   "#00BBF9",
+  "UK":        "#80B918",
+  "Canada":    "#FF6B6B",
+  "Sydkorea":  "#C77DFF",
+  "Rumænien":  "#FF9F1C",
+  "Sverige":   "#58a6ff",
+  "Norge":     "#94D2BD",
+  "Italien":   "#FAA307",
+  "Spanien":   "#F48C06",
+  "USA":       "#D00000"
+};
+
+// Tilføj en generisk funktion til hvis landefarven mangler
+function getCountryColor(country) {
+  if (COLORS[country]) return COLORS[country];
+  // Hvis farven for et nyere land ikke findes, lav en hurtig hash til en farve
+  let hash = 0;
+  for (let i = 0; i < country.length; i++) { hash = country.charCodeAt(i) + ((hash << 5) - hash); }
+  const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+  return "#" + "000000".substring(0, 6 - c.length) + c;
+}
+
+// ============================================================
+// KORT — Leaflet setup
+// ============================================================
+const map = L.map('map', { zoomControl: true }).setView([54, 12], 5);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO',
+  maxZoom: 14
+}).addTo(map);
+
+// Oak House markør
+const oakIcon = L.divIcon({
+  className: '',
+  html: `<div style="background:#238636;border:2px solid #2ea043;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 0 6px rgba(35,134,54,0.15);">🌲</div>`,
+  iconSize: [26, 26], iconAnchor: [13, 13]
+});
+
+L.marker([OAK.lat, OAK.lng], { icon: oakIcon, zIndexOffset: 1000 })
+  .addTo(map)
+  .bindPopup(`
+    <div class="pop-city">Thy Oak Houses</div>
+    <div class="pop-country" style="color:#2ea043;">Thisted, Nordjylland</div>
+    <div class="pop-stats">
+      🌲 Tiny Oak House — 5 km til havet<br>
+      🌊 Ocean Oak House — 1 km til havet
+    </div>
+  `);
+
+let markers = [];
+let lines = [];
+let currentFilter = "Alle";
+
+function render() {
+  markers.forEach(m => map.removeLayer(m));
+  lines.forEach(l => map.removeLayer(l));
+  markers = []; lines = [];
+
+  const shown = currentFilter === "Alle" ? GUESTS : GUESTS.filter(g => g.country === currentFilter);
+
+  shown.forEach(g => {
+    const col = getCountryColor(g.country);
+    const r = g.count >= 10 ? 20 : g.count >= 5 ? 16 : g.count >= 3 ? 13 : g.count === 2 ? 10 : 8;
+
+    // Linje fra Oak House
+    const line = L.polyline([[OAK.lat, OAK.lng], [g.lat, g.lng]], {
+      color: col,
+      weight: g.count >= 5 ? 2 : 1,
+      opacity: g.count >= 5 ? 0.5 : 0.25,
+      dashArray: "5, 8"
+    }).addTo(map);
+    lines.push(line);
+
+    // By-markør
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="
+        background:${col};
+        border-radius:50%;
+        width:${r*2}px;height:${r*2}px;
+        display:flex;align-items:center;justify-content:center;
+        font-size:${r > 12 ? 10 : 9}px;font-weight:600;color:#fff;
+        border:2px solid rgba(255,255,255,0.4);
+        box-shadow:0 2px 8px rgba(0,0,0,0.4);
+        opacity:0.9;
+      ">${g.count > 1 ? g.count : ''}</div>`,
+      iconSize: [r*2, r*2], iconAnchor: [r, r]
+    });
+
+    let popup = `
+      <div class="pop-city">${g.city}</div>
+      <div class="pop-country" style="color:${col};">${g.country}</div>
+      <div class="pop-stats">
+        🧳 <b>${g.count}</b> reservation${g.count > 1 ? 'er' : ''}
+        ${g.nights > 0 ? `<br>🌙 <b>${g.nights}</b> nætter i snit` : ''}
+        ${g.kr > 0 ? `<br>💰 <b>${g.kr.toLocaleString('da')} kr</b> i snit` : ''}
+      </div>
+    `;
+
+    const m = L.marker([g.lat, g.lng], { icon })
+      .addTo(map)
+      .bindPopup(popup);
+
+    m.on('mouseover', () => {
+      line.setStyle({ opacity: 0.9, weight: 2.5, dashArray: null });
+      m.openPopup();
+    });
+    m.on('mouseout', () => {
+      line.setStyle({ opacity: g.count >= 5 ? 0.5 : 0.25, weight: g.count >= 5 ? 2 : 1, dashArray: "5, 8" });
+    });
+
+    markers.push(m);
   });
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/">OpenStreetMap</a>',
-    maxZoom: 18
-  }).addTo(map);
+  // Opdater stats header
+  const totalBookings = shown.reduce((s, g) => s + g.count, 0);
+  const totalCities   = new Set(shown.map(g => g.city)).size;
+  const totalCountries = new Set(shown.map(g => g.country)).size;
 
-  // ─────────────────────────────────────────────────────────────
-  // STATE
-  // ─────────────────────────────────────────────────────────────
-  let allGuests   = [];   // full dataset from API
-  let activeFilter = 'all';
-  let markers      = [];
+  document.getElementById('subtitle-text').textContent = `${totalBookings} BOOKINGER · ${totalCities} BYER · ${totalCountries} LANDE`;
 
-  // ─────────────────────────────────────────────────────────────
-  // FILTER LOGIC
-  // ─────────────────────────────────────────────────────────────
-  function setFilter(filter) {
-    activeFilter = filter;
+  // Top val
+  const top = [...shown].sort((a, b) => b.count - a.count)[0];
+  const best = [...shown].filter(g => g.kr > 0).sort((a, b) => b.kr - a.kr)[0];
+  
+  document.getElementById('s-guests').textContent = totalBookings;
+  document.getElementById('s-top').textContent = top ? `${top.city} (${top.count})` : '—';
+  document.getElementById('s-kr').textContent = best ? `${best.city} · ${best.kr.toLocaleString('da')} kr` : '—';
+}
 
-    // Update button states
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById('btn-' + filter).classList.add('active');
+function initMapLegendAndFilters() {
+  const fd = document.getElementById('filters');
+  fd.innerHTML = ''; // Renser eksisterende
+  
+  const ld = document.getElementById('legend');
+  ld.innerHTML = '';
 
-    renderMap(getFilteredGuests());
-  }
+  const unikkeLandeSet = new Set(GUESTS.map(g => g.country));
+  const unikkeLande = ['Alle', ...Array.from(unikkeLandeSet).sort()];
 
-  function getFilteredGuests() {
-    if (activeFilter === 'all') return allGuests;
-
-    const now      = new Date();
-    const months   = activeFilter === '6months' ? 6 : 3;
-    const cutoff   = new Date(now);
-    cutoff.setMonth(cutoff.getMonth() - months);
-
-    return allGuests.filter(g => {
-      const checkIn = new Date(g.CheckIn);
-      return checkIn >= cutoff;
-    });
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // RENDER MARKERS
-  // ─────────────────────────────────────────────────────────────
-  function renderMap(guests) {
-    // Clear existing markers
-    markers.forEach(m => map.removeLayer(m));
-    markers = [];
-
-    guests.forEach(guest => {
-      const lat = parseFloat(guest.Lat);
-      const lng = parseFloat(guest.Lng);
-      if (isNaN(lat) || isNaN(lng)) return;
-
-      // Custom round marker
-      const icon = L.divIcon({
-        className: '',
-        html: '<div class="custom-marker"></div>',
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-        popupAnchor: [0, -14]
+  // Filterknapper
+  unikkeLande.forEach(c => {
+    const btn = document.createElement('button');
+    btn.className = 'filter-btn';
+    btn.textContent = c;
+    const col = getCountryColor(c);
+    
+    if (c === 'Alle') {
+      btn.style.cssText = `border-color:#58a6ff;background:#58a6ff22;color:#58a6ff;`;
+    }
+    
+    btn.addEventListener('click', () => {
+      currentFilter = c;
+      document.querySelectorAll('.filter-btn').forEach(b => {
+        b.style.borderColor = ''; b.style.background = ''; b.style.color = '';
       });
+      btn.style.cssText = c === 'Alle' 
+        ? `border-color:#58a6ff;background:#58a6ff22;color:#58a6ff;`
+        : `border-color:${col};background:${col}22;color:${col};`;
+      renderLeaderboard();
+      render();
+    });
+    fd.appendChild(btn);
+  });
 
-      const nights  = guest.Nights || calcNights(guest.CheckIn, guest.CheckOut);
-      const checkIn = formatDate(guest.CheckIn);
-      const checkOut = formatDate(guest.CheckOut);
-      const payout  = guest.Payout && guest.Payout !== '0' ? guest.Payout : 'Unknown';
+  // Landeforklaring
+  unikkeLandeSet.forEach(c => {
+    const col = getCountryColor(c);
+    const n = GUESTS.filter(g => g.country === c).reduce((s, g) => s + g.count, 0);
+    if (!n) return;
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<div class="legend-dot" style="background:${col}"></div>${c} <span style="color:${col};font-weight:600;">${n}</span>`;
+    item.addEventListener('click', () => {
+      currentFilter = currentFilter === c ? 'Alle' : c;
+      document.querySelectorAll('.filter-btn').forEach(b => {
+        b.style.borderColor = ''; b.style.background = ''; b.style.color = '';
+      });
+      renderLeaderboard();
+      render();
+    });
+    ld.appendChild(item);
+  });
+}
 
-      const popup = `
-        <div class="popup-content">
-          <div class="popup-name">👤 ${escHtml(guest.Name)}</div>
-          <div class="popup-row">📅 <span>${checkIn} → ${checkOut}</span></div>
-          <div class="popup-row">🌙 <span>${nights} night${nights !== 1 ? 's' : ''}</span></div>
-          ${payout !== 'Unknown' ? `<div class="popup-row">💰 <span>${escHtml(payout)}</span></div>` : ''}
-          <div class="popup-location">📍 ${escHtml(guest.Location)}</div>
-        </div>`;
+function renderLeaderboard() {
+  const shown = currentFilter === "Alle" ? GUESTS : GUESTS.filter(g => g.country === currentFilter);
+  const top5 = [...shown].sort((a, b) => b.count - a.count).slice(0, 5);
+  const max = top5[0] ? top5[0].count : 1;
+  const lb = document.getElementById('leaderboard');
+  lb.innerHTML = `
+    <div style="font-size:11px;font-weight:600;color:#4a6080;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;">Top 5 byer</div>
+    ${top5.map((g, i) => {
+      const col = getCountryColor(g.country);
+      const pct = Math.round((g.count / max) * 100);
+      const medals = ['🥇','🥈','🥉','4️⃣','5️⃣'];
+      return `
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+            <div style="font-size:13px;font-weight:600;color:#f0f6fc;">${medals[i]} ${g.city}</div>
+            <div style="font-size:12px;font-weight:600;color:${col};">${g.count}</div>
+          </div>
+          <div style="background:#21262d;border-radius:4px;height:5px;overflow:hidden;">
+            <div style="background:${col};height:100%;width:${pct}%;border-radius:4px;transition:width 0.4s;"></div>
+          </div>
+          <div style="font-size:10px;color:#4a6080;margin-top:3px;">${g.country}${g.kr > 0 ? ` · ${g.kr.toLocaleString('da')} kr/book` : ''}</div>
+        </div>
+      `;
+    }).join('')}
+  `;
+}
 
-      const marker = L.marker([lat, lng], { icon })
-        .bindPopup(popup)
-        .addTo(map);
+// ============================================================
+// HENT OG SAML DATA FRA SCRIPT
+// ============================================================
+async function loadServerData() {
+  try {
+    if (API_URL === 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE') {
+      alert("Husk at indsætte din Google Apps Script URL i index.html koden.");
+      document.getElementById('loading-overlay').style.opacity = '0';
+      return;
+    }
 
-      markers.push(marker);
+    const res = await fetch(API_URL);
+    const apiData = await res.json();
+    
+    const cityMap = {};
+
+    apiData.forEach(row => {
+      const parts = row.Location.split(',');
+      const by = parts[0].trim();
+      const land = parts.length > 1 ? parts[parts.length - 1].trim() : "Ukendt";
+      
+      const key = by + land;
+      
+      if (!cityMap[key]) {
+        cityMap[key] = {
+          city: by,
+          country: land,
+          lat: parseFloat(row.Lat) || 0,
+          lng: parseFloat(row.Lng) || 0,
+          count: 0,
+          totalNights: 0,
+          totalKr: 0
+        };
+      }
+      
+      cityMap[key].count += 1;
+      
+      if (row.Nights) cityMap[key].totalNights += parseInt(row.Nights);
+      
+      if (row.Payout && row.Payout !== '0') {
+        const numMatch = row.Payout.replace(/\./g, '').replace(',', '.').match(/[\d\.]+/);
+        if (numMatch) {
+          cityMap[key].totalKr += parseFloat(numMatch[0]);
+        }
+      }
     });
 
-    updateStats(guests);
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // STATS
-  // ─────────────────────────────────────────────────────────────
-  function updateStats(guests) {
-    const countries = new Set(guests.map(g => {
-      // Rough country extraction from location string (last part after comma)
-      const parts = g.Location.split(',');
-      return parts[parts.length - 1].trim();
+    GUESTS = Object.values(cityMap).map(g => ({
+      ...g,
+      nights: g.count > 0 ? parseFloat((g.totalNights / g.count).toFixed(1)) : 0,
+      kr: g.totalKr > 0 ? Math.round(g.totalKr / g.count) : 0
     }));
 
-    const totalNights = guests.reduce((sum, g) => {
-      const n = g.Nights ? parseInt(g.Nights) : calcNights(g.CheckIn, g.CheckOut);
-      return sum + (isNaN(n) ? 0 : n);
-    }, 0);
-
-    const totalEarnings = guests.reduce((sum, g) => {
-      if (!g.Payout || g.Payout === '0') return sum;
-      // Parse string like "9.021,75 kr" to 9021.75
-      const numMatch = g.Payout.replace(/\./g, '').replace(',', '.').match(/[\d\.]+/);
-      return sum + (numMatch ? parseFloat(numMatch[0]) : 0);
-    }, 0);
-
-    animateCount('stat-guests',   guests.length);
-    animateCount('stat-countries', countries.size);
-    animateCount('stat-nights',   totalNights);
-    animateCount('stat-earnings', Math.round(totalEarnings));
+    initMapLegendAndFilters();
+    renderLeaderboard();
+    render();
+    
+    // Fjern loading skærm
+    const obs = document.getElementById('loading-overlay');
+    obs.style.opacity = '0';
+    setTimeout(() => obs.style.display = 'none', 500);
+    
+  } catch(e) {
+    console.error("Fejl i loading af data:", e);
+    document.getElementById('loading-overlay').innerHTML = "Fejl: Kunne ikke hente data fra regnearket.";
   }
+}
 
-  function animateCount(id, target) {
-    const el    = document.getElementById(id);
-    const start = parseInt(el.textContent) || 0;
-    const diff  = target - start;
-    const duration = 600;
-    const startTime = performance.now();
-
-    function step(now) {
-      const progress = Math.min((now - startTime) / duration, 1);
-      const ease     = 1 - Math.pow(1 - progress, 3);
-      el.textContent = Math.round(start + diff * ease);
-      if (progress < 1) requestAnimationFrame(step);
-    }
-    requestAnimationFrame(step);
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // HELPERS
-  // ─────────────────────────────────────────────────────────────
-  function calcNights(checkIn, checkOut) {
-    const msPerDay = 1000 * 60 * 60 * 24;
-    const d1 = new Date(checkIn);
-    const d2 = new Date(checkOut);
-    if (isNaN(d1) || isNaN(d2)) return 0;
-    return Math.max(0, Math.round((d2 - d1) / msPerDay));
-  }
-
-  function formatDate(dateStr) {
-    if (!dateStr) return '—';
-    const d = new Date(dateStr);
-    if (isNaN(d)) return dateStr;
-    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  }
-
-  function escHtml(str) {
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // FETCH DATA
-  // ─────────────────────────────────────────────────────────────
-  async function loadGuests() {
-    try {
-      // If no API URL set yet, use demo data
-      if (API_URL === 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE') {
-        allGuests = getDemoData();
-        renderMap(allGuests);
-        document.getElementById('last-updated-text').textContent = 'Demo mode — connect your Google Sheet';
-        return;
-      }
-
-      const res  = await fetch(API_URL);
-      const data = await res.json();
-      allGuests  = Array.isArray(data) ? data : (data.guests || []);
-
-      renderMap(getFilteredGuests());
-      document.getElementById('last-updated-text').textContent =
-        'Updated ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-
-    } catch (err) {
-      console.error('Failed to load guest data:', err);
-      document.getElementById('last-updated-text').textContent = 'Error loading data';
-      // Fallback to demo
-      allGuests = getDemoData();
-      renderMap(allGuests);
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // DEMO DATA (shown before the Apps Script is connected)
-  // ─────────────────────────────────────────────────────────────
-  function getDemoData() {
-    return [
-      { Name: 'Emma Nielsen',   CheckIn: '2024-06-15', CheckOut: '2024-06-22', Location: 'Copenhagen, Denmark',  Lat: 55.6761, Lng: 12.5683, Nights: 7, Payout: '9.021,75 kr' },
-      { Name: 'Lars Müller',    CheckIn: '2024-07-01', CheckOut: '2024-07-07', Location: 'Hamburg, Germany',     Lat: 53.5511, Lng: 9.9937, Nights: 6, Payout: '7.500,00 kr' },
-      { Name: 'Sophie Dupont',  CheckIn: '2024-07-10', CheckOut: '2024-07-14', Location: 'Paris, France',        Lat: 48.8566, Lng: 2.3522, Nights: 4, Payout: '5.200,00 kr' },
-      { Name: 'James Wilson',   CheckIn: '2024-08-01', CheckOut: '2024-08-08', Location: 'London, UK',           Lat: 51.5074, Lng: -0.1278, Nights: 7, Payout: '10.000,00 kr' },
-      { Name: 'Anna Kowalski',  CheckIn: '2024-08-15', CheckOut: '2024-08-20', Location: 'Warsaw, Poland',       Lat: 52.2297, Lng: 21.0122, Nights: 5, Payout: '6.400,00 kr' },
-      { Name: 'Pieter van Dam', CheckIn: '2024-09-03', CheckOut: '2024-09-09', Location: 'Amsterdam, Netherlands', Lat: 52.3676, Lng: 4.9041, Nights: 6, Payout: '8.100,00 kr' },
-      { Name: 'Ingrid Olsen',   CheckIn: '2024-09-20', CheckOut: '2024-09-25', Location: 'Oslo, Norway',          Lat: 59.9139, Lng: 10.7522, Nights: 5, Payout: '6.750,00 kr' },
-      { Name: 'Mikael Svensson',CheckIn: '2024-10-01', CheckOut: '2024-10-05', Location: 'Stockholm, Sweden',    Lat: 59.3293, Lng: 18.0686, Nights: 4, Payout: '5.600,00 kr' },
-      { Name: 'Clara Rossi',    CheckIn: '2025-01-12', CheckOut: '2025-01-18', Location: 'Milan, Italy',         Lat: 45.4654, Lng: 9.1859, Nights: 6, Payout: '7.800,00 kr' },
-      { Name: 'Thomas Schmidt', CheckIn: '2025-02-20', CheckOut: '2025-02-24', Location: 'Berlin, Germany',      Lat: 52.5200, Lng: 13.4050, Nights: 4, Payout: '5.100,00 kr' },
-      { Name: 'Mia Hansen',     CheckIn: '2025-03-08', CheckOut: '2025-03-14', Location: 'Aarhus, Denmark',      Lat: 56.1629, Lng: 10.2039, Nights: 6, Payout: '7.200,00 kr' },
-      { Name: 'Luc Martin',     CheckIn: '2025-04-01', CheckOut: '2025-04-06', Location: 'Brussels, Belgium',    Lat: 50.8503, Lng: 4.3517, Nights: 5, Payout: '6.600,00 kr' },
-    ];
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // INIT
-  // ─────────────────────────────────────────────────────────────
-  loadGuests().then(() => {
-    document.getElementById('overlay').classList.add('hidden');
-  });
-
-  // Auto-refresh every 30 minutes
-  setInterval(loadGuests, 30 * 60 * 1000);
+// Start loading
+loadServerData();
 </script>
 </body>
 </html>

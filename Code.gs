@@ -47,9 +47,10 @@ function syncAirbnbEmails() {
   // Use PropertiesService to remember the last scan time for efficiency.
   const props       = PropertiesService.getScriptProperties();
   const lastScanStr = props.getProperty('LAST_SCAN_DATE');
+  // If we have a last scan date, use it; otherwise start from September 2024
   const queryWithDate = lastScanStr
     ? `${GMAIL_QUERY} after:${lastScanStr}`
-    : `${GMAIL_QUERY} newer_than:2m`; // 2 months back on first run
+    : `${GMAIL_QUERY} after:2024/09/01`; // 2 months back on first run
 
   Logger.log(`Searching Gmail with: ${queryWithDate}`);
 
