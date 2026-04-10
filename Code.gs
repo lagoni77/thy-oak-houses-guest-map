@@ -408,3 +408,8 @@ function testAddSampleGuest() {
   ]);
   Logger.log('Sample guest added!');
 }
+
+function resetScanDate() {
+  PropertiesService.getScriptProperties().deleteProperty('LAST_SCAN_DATE');
+  Logger.log('SUCCESS! Din LAST_SCAN_DATE er nu slettet. Du kan nu køre syncAirbnbEmails igen, og den vil trække alt det gamle.');
+}
