@@ -29,8 +29,9 @@ const COL = {
   EMAIL_ID: 8
 };
 
-// Airbnb Gmail search query
-const GMAIL_QUERY = 'from:automated@airbnb.com subject:"Reservation confirmed"';
+// Airbnb Gmail search query targeting both English and Danish subjects
+// Using {} in Gmail query works as an OR statement.
+const GMAIL_QUERY = 'from:automated@airbnb.com {subject:"Reservation confirmed" subject:"Bekræftet reservation" subject:"Ny bekræftet booking"}';
 
 // ── MAIN SCRAPER ─────────────────────────────────────────────────────────────
 /**
@@ -42,16 +43,22 @@ function syncAirbnbEmails() {
   const existingEmailIds = getExistingEmailIds(sheet);
 
   // Use PropertiesService to remember the last scan time for efficiency.
-  // On first run this will be null, so we scan all mail.
   const props       = PropertiesService.getScriptProperties();
   const lastScanStr = props.getProperty('LAST_SCAN_DATE');
   const queryWithDate = lastScanStr
     ? `${GMAIL_QUERY} after:${lastScanStr}`
-    : GMAIL_QUERY;
+    : `${GMAIL_QUERY} newer_than:2m`; // 2 months back on first run
 
   Logger.log(`Searching Gmail with: ${queryWithDate}`);
 
-  const threads = GmailApp.search(queryWithDate);
+  let threads;
+  try {
+    threads = GmailApp.search(queryWithDate);
+  } catch (e) {
+    Logger.log(`Error searching Gmail: ${e}`);
+    return;
+  }
+
   Logger.log(`Found ${threads.length} thread(s)`);
 
   let newRowsCount = 0;
@@ -66,11 +73,12 @@ function syncAirbnbEmails() {
         return;
       }
 
-      const body = message.getPlainBody();
-      const parsed = parseAirbnbEmail(body);
+      const body    = message.getPlainBody();
+      const subject = message.getSubject();
+      const parsed  = parseAirbnbEmail(body, subject, new Date(message.getDate()));
 
       if (!parsed) {
-        Logger.log(`Could not parse email ${emailId} — skipping`);
+        Logger.log(`Could not parse email ${emailId} (Subject: ${subject}) — skipping`);
         return;
       }
 
@@ -106,63 +114,141 @@ function syncAirbnbEmails() {
 
 // ── EMAIL PARSER ─────────────────────────────────────────────────────────────
 /**
- * Extracts guest name, check-in/out, and home location from an Airbnb
- * confirmation email body.
- * Returns { name, checkIn, checkOut, location } or null if parsing fails.
+ * Extracts guest name, check-in/out, and home location from an Airbnb email.
  */
-function parseAirbnbEmail(body) {
+function parseAirbnbEmail(body, subject, emailDate) {
   try {
-    // ── Guest Name ──────────────────────────────────────────────────────────
-    // Airbnb emails typically say "You have a new reservation from [Name]"
-    // or "[Name] is coming to stay"
-    const namePatterns = [
-      /(?:reservation from|booked by|guest[:\s]+)\s*([A-Z][a-z]+(?: [A-Z][a-z]+)*)/i,
-      /^([A-Z][a-z]+(?: [A-Z][a-z]+)*) is coming/im,
-      /Hello,\s*([A-Z][a-z]+(?: [A-Z][a-z]+)*)/i,
-      /Guest:\s*([A-Za-z ]+)/i
-    ];
-
     let name = null;
-    for (const pattern of namePatterns) {
-      const match = body.match(pattern);
-      if (match) { name = match[1].trim(); break; }
+    let location = null;
+    let checkInDate = null;
+    let checkOutDate = null;
+
+    // ── GUEST NAME ──────────────────────────────────────────────────────────
+    // 1. Try Danish subject format: "Bekræftet reservation – Mathias Kaisner ankommer..."
+    let match = subject.match(/Bekræftet reservation\s*–\s*(.*?)\s+ankommer/i);
+    if (match) name = match[1].trim();
+
+    if (!name) {
+      // 2. Try English generic ones
+      const namePatterns = [
+        /(?:reservation from|booked by|guest[:\s]+)\s*([A-ZæøåÆØÅ][a-zæøåÆØÅ]+(?: [A-ZæøåÆØÅ][a-zæøåÆØÅ]+)*)/i,
+        /^([A-ZæøåÆØÅ][a-zæøåÆØÅ]+(?: [A-ZæøåÆØÅ][a-zæøåÆØÅ]+)*) is coming/im,
+        /Hello,\s*([A-ZæøåÆØÅ][a-zæøåÆØÅ]+(?: [A-ZæøåÆØÅ][a-zæøåÆØÅ]+)*)/i
+      ];
+      for (const pattern of namePatterns) {
+        match = body.match(pattern);
+        if (match) { name = match[1].trim(); break; }
+      }
     }
+
+    if (!name) {
+      // 3. Try finding name above "Identitet bekræftet" in Danish emails
+      match = body.match(/([^\n]+)\s*\n+\s*Identitet bekræftet/i);
+      if (match) name = match[1].trim();
+    }
+    
     if (!name) name = 'Unknown Guest';
 
-    // ── Dates ───────────────────────────────────────────────────────────────
-    // Match patterns like "Jun 15, 2024" or "15 June 2024" or "2024-06-15"
-    const datePattern = /(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}|\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}|\b\d{4}-\d{2}-\d{2})/gi;
-    const dates = [...body.matchAll(datePattern)].map(m => new Date(m[0])).filter(d => !isNaN(d));
+    // ── LOCATION ────────────────────────────────────────────────────────────
+    // 1. In Danish emails, location is directly below "Identitet bekræftet..."
+    match = body.match(/Identitet bekræftet[^\n]*\s*\n+\s*([^\n]+)/i);
+    if (match) location = match[1].trim();
 
-    if (dates.length < 2) {
-      Logger.log('Could not find 2 dates — skipping');
+    if (!location) {
+      // 2. Try English patterns
+      const locPatterns = [
+        /(?:From|Home|Location|Lives in|from)\s*:\s*([A-Za-zæøåÆØÅ\s,-]+?)(?:\n|\.)/i,
+        /(?:From|Home):\s*\n\s*([A-Za-zæøåÆØÅ\s,-]+?)(?:\n|$)/im
+      ];
+      for (const pattern of locPatterns) {
+        match = body.match(pattern);
+        if (match) { location = match[1].trim(); break; }
+      }
+    }
+    
+    // Fallback cleanup if the scraped location is something random like an Airbnb text
+    if (!location || location.length > 50 || location.includes('Hej Brian')) {
+      location = 'Unknown';
+    }
+
+    // ── DATES ───────────────────────────────────────────────────────────────
+    // Parse Danish Dates specifically
+    // Pattern looks for: "Indtjekning \n\n tirs. 7. jul."
+    const inMatch  = body.match(/Indtjekning[^\n]*\s*\n+\s*(?:[a-zæøå]+\.?\s*)?(\d{1,2}\.\s*[a-zæøå]+\.?(?:\s*\d{4})?)/i);
+    const outMatch = body.match(/Udtjekning[^\n]*\s*\n+\s*(?:[a-zæøå]+\.?\s*)?(\d{1,2}\.\s*[a-zæøå]+\.?(?:\s*\d{4})?)/i);
+
+    if (inMatch && outMatch) {
+      checkInDate  = parseDanishDate(inMatch[1], emailDate);
+      checkOutDate = parseDanishDate(outMatch[1], emailDate);
+    } else {
+      // Fallback to English date parsing
+      const datePattern = /(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}|\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}|\b\d{4}-\d{2}-\d{2})/gi;
+      const dates = [...body.matchAll(datePattern)].map(m => new Date(m[0])).filter(d => !isNaN(d));
+      if (dates.length >= 2) {
+        dates.sort((a, b) => a - b);
+        checkInDate  = dates[0];
+        checkOutDate = dates[dates.length - 1];
+      }
+    }
+
+    if (!checkInDate || !checkOutDate) {
+      Logger.log('Could not find both check-in and check-out dates.');
       return null;
     }
 
-    dates.sort((a, b) => a - b);
-    const checkIn  = Utilities.formatDate(dates[0], 'UTC', 'yyyy-MM-dd');
-    const checkOut = Utilities.formatDate(dates[dates.length - 1], 'UTC', 'yyyy-MM-dd');
+    const checkInStr  = Utilities.formatDate(checkInDate, 'UTC', 'yyyy-MM-dd');
+    const checkOutStr = Utilities.formatDate(checkOutDate, 'UTC', 'yyyy-MM-dd');
 
-    // ── Location ────────────────────────────────────────────────────────────
-    // Airbnb includes "Home" location (guest's city/country)
-    const locationPatterns = [
-      /(?:From|Home|Location|Lives in|from)\s*:\s*([A-Za-z\s,]+?)(?:\n|\.)/i,
-      /(?:From|Home):\s*\n\s*([A-Za-z\s,]+?)(?:\n|$)/im,
-      /(\b[A-Z][a-z]+(?:,\s*[A-Z][a-z]+)*(?:,\s*[A-Z]{2,3})?)/  // City, Country
-    ];
-
-    let location = 'Unknown';
-    for (const pattern of locationPatterns) {
-      const match = body.match(pattern);
-      if (match) { location = match[1].trim(); break; }
-    }
-
-    return { name, checkIn, checkOut, location };
+    return { name, checkIn: checkInStr, checkOut: checkOutStr, location };
 
   } catch (e) {
     Logger.log(`parseAirbnbEmail error: ${e.message}`);
     return null;
   }
+}
+
+/**
+ * Parses Danish date strings like "7. jul." into a JS Date object.
+ * Assumes the year based on the email receive date, rolling forward if the month is before email month.
+ */
+function parseDanishDate(dateStr, emailDate) {
+  // Extract number and month
+  const match = dateStr.match(/(\d{1,2})\.\s*([a-zæøå]{3,})/i);
+  if (!match) return null;
+
+  const day = parseInt(match[1]);
+  const monthStr = match[2].toLowerCase();
+  
+  const dkMonths = {
+    'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'maj': 4, 'jun': 5,
+    'jul': 6, 'aug': 7, 'sep': 8, 'okt': 9, 'nov': 10, 'dec': 11
+  };
+  
+  // Find which month it corresponds to
+  let monthIndex = null;
+  for (const [key, index] of Object.entries(dkMonths)) {
+    if (monthStr.startsWith(key)) {
+      monthIndex = index;
+      break;
+    }
+  }
+  
+  if (monthIndex === null) return null;
+
+  // Determine year: if booking date month is before email date month, it's probably next year.
+  let year = emailDate.getFullYear();
+  if (monthIndex < emailDate.getMonth() - 2) { 
+    // Usually bookings aren't made 10 months past, so it must be next year
+    year += 1;
+  }
+  
+  // See if year was explicitly specified in the string (e.g. "7. jul. 2026")
+  const yearMatch = dateStr.match(/\d{4}/);
+  if (yearMatch) {
+    year = parseInt(yearMatch[0]);
+  }
+
+  return new Date(Date.UTC(year, monthIndex, day));
 }
 
 // ── GEOCODER ─────────────────────────────────────────────────────────────────
@@ -171,9 +257,8 @@ function parseAirbnbEmail(body) {
  * First checks existing rows in the sheet to avoid re-geocoding the same city.
  */
 function getOrGeocodeLocation(location, sheet) {
-  // Check if we already have coords for this location
   const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {  // start at 1 to skip header
+  for (let i = 1; i < data.length; i++) {
     if (String(data[i][COL.LOCATION - 1]).toLowerCase() === location.toLowerCase()) {
       const lat = data[i][COL.LAT - 1];
       const lng = data[i][COL.LNG - 1];
@@ -184,7 +269,6 @@ function getOrGeocodeLocation(location, sheet) {
     }
   }
 
-  // Not found — geocode it
   try {
     const geo     = Maps.newGeocoder().geocode(location);
     const results = geo.results;
@@ -205,17 +289,15 @@ function getOrGeocodeLocation(location, sheet) {
 /**
  * HTTP GET handler — deployed as Web App.
  * Returns all guest data as a JSON array with CORS headers.
- * URL: Deploy > New Deployment > Web App > "Who has access: Anyone"
  */
 function doGet(e) {
   const sheet  = getSheet();
   const values = sheet.getDataRange().getValues();
 
-  // Build array from rows (skip header row)
   const guests = [];
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-    if (!row[COL.NAME - 1]) continue;  // skip empty rows
+    if (!row[COL.NAME - 1]) continue;
 
     guests.push({
       ID:       row[COL.ID       - 1],
@@ -225,32 +307,29 @@ function doGet(e) {
       Location: row[COL.LOCATION - 1],
       Lat:      row[COL.LAT      - 1],
       Lng:      row[COL.LNG      - 1]
-      // Note: EmailID intentionally excluded from public API
     });
   }
 
-  const json = JSON.stringify(guests);
-
-  // Return with CORS headers so thy-oak-houses.vercel.app can fetch
   return ContentService
-    .createTextOutput(json)
+    .createTextOutput(JSON.stringify(guests))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
-/**
- * Returns the GuestData sheet. Throws if it doesn't exist.
- */
 function getSheet() {
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAME);
-  if (!sheet) throw new Error(`Sheet "${SHEET_NAME}" not found. Please create it first.`);
+  let sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) {
+    // If it doesn't exist, try to fall back to 'Ark1' or 'Sheet1' automatically. 
+    // We'll rename it later just to be safe.
+    sheet = ss.getSheets()[0];
+    if (sheet && sheet.getName() !== SHEET_NAME) {
+        sheet.setName(SHEET_NAME);
+    }
+  }
   return sheet;
 }
 
-/**
- * Returns a Set of all EmailIDs already in the sheet (for duplicate detection).
- */
 function getExistingEmailIds(sheet) {
   const values = sheet.getDataRange().getValues();
   const ids    = new Set();
@@ -261,24 +340,20 @@ function getExistingEmailIds(sheet) {
   return ids;
 }
 
-/**
- * Utility: Run this once manually to create the sheet header row.
- */
 function setupSheet() {
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   let sheet   = ss.getSheetByName(SHEET_NAME);
 
   if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
-    Logger.log('Created sheet: ' + SHEET_NAME);
+    sheet = ss.getSheets()[0];
+    sheet.setName(SHEET_NAME);
+    Logger.log('Renamed default sheet to: ' + SHEET_NAME);
   }
 
-  // Set header row
   sheet.getRange(1, 1, 1, 8).setValues([[
     'ID', 'Name', 'CheckIn', 'CheckOut', 'Location', 'Lat', 'Lng', 'EmailID'
   ]]);
 
-  // Style the header
   sheet.getRange(1, 1, 1, 8)
     .setBackground('#1a3327')
     .setFontColor('#4ade80')
@@ -288,10 +363,6 @@ function setupSheet() {
   Logger.log('Sheet setup complete!');
 }
 
-// ── MANUAL TEST ──────────────────────────────────────────────────────────────
-/**
- * Run this manually to test with a single fake guest entry.
- */
 function testAddSampleGuest() {
   const sheet = getSheet();
   const coords = getOrGeocodeLocation('Copenhagen, Denmark', sheet);
