@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guest Map · Thy Oak Houses</title>
+  <meta name="description" content="See where guests of Thy Oak Houses come from around the world.">
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg:        #0b1a14;
+      --surface:   #122318;
+      --surface2:  #1a3327;
+      --accent:    #4ade80;
+      --accent2:   #22c55e;
+      --text:      #e8f5ee;
+      --muted:     #7aad8e;
+      --border:    rgba(74,222,128,0.15);
+      --glow:      rgba(74,222,128,0.25);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── HEADER ── */
+    header {
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      background: rgba(11,26,20,0.85);
+      backdrop-filter: blur(12px);
+      position: relative;
+      z-index: 1000;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+
+    .logo-icon {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--accent2), #166534);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .logo-text {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .logo-text span:first-child {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: 0.05em;
+    }
+
+    .logo-text span:last-child {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* ── STATS BAR ── */
+    .stats-bar {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 2px;
+    }
+
+    .stat-divider {
+      width: 1px;
+      height: 32px;
+      background: var(--border);
+    }
+
+    /* ── CONTROLS ── */
+    .controls {
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .controls-label {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-right: 4px;
+    }
+
+    .filter-btn {
+      padding: 6px 18px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      font-family: 'Outfit', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .filter-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .filter-btn.active {
+      background: var(--accent2);
+      border-color: var(--accent2);
+      color: #0b1a14;
+      font-weight: 600;
+    }
+
+    .spacer { flex: 1; }
+
+    .last-updated {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-right: 6px;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* ── MAP ── */
+    #map {
+      flex: 1;
+      min-height: 0;
+      z-index: 1;
+    }
+
+    /* Override Leaflet for dark theme */
+    .leaflet-tile-pane { filter: brightness(0.7) saturate(0.6); }
+
+    .leaflet-popup-content-wrapper {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--glow);
+      color: var(--text);
+    }
+
+    .leaflet-popup-tip {
+      background: var(--surface2);
+    }
+
+    .leaflet-popup-close-button {
+      color: var(--muted) !important;
+    }
+
+    .popup-content {
+      padding: 4px 2px;
+      min-width: 180px;
+    }
+
+    .popup-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+
+    .popup-row {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 3px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .popup-row span { color: var(--text); }
+
+    .popup-location {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── LOADING & ERROR ── */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      gap: 16px;
+      transition: opacity 0.5s ease;
+    }
+
+    #overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid var(--surface2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #overlay p {
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    /* Custom marker */
+    .custom-marker {
+      width: 24px;
+      height: 24px;
+      background: var(--accent);
+      border: 2px solid #0b1a14;
+      border-radius: 50%;
+      box-shadow: 0 0 0 3px var(--glow), 0 4px 12px rgba(0,0,0,0.4);
+      transition: transform 0.2s;
+    }
+
+    .custom-marker:hover { transform: scale(1.3); }
+
+    /* ── FOOTER ── */
+    .footer-strip {
+      padding: 10px 32px;
+      font-size: 11px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 640px) {
+      header { padding: 14px 16px; }
+      .stats-bar { gap: 12px; }
+      .stat-value { font-size: 18px; }
+      .controls { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
+      .footer-strip { padding: 8px 16px; flex-direction: column; gap: 2px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="overlay">
+  <div class="spinner"></div>
+  <p>Loading guest data…</p>
+</div>
+
+<!-- Header -->
+<header>
+  <a class="logo" href="https://thy-oak-houses.vercel.app" target="_blank">
+    <div class="logo-icon">🌿</div>
+    <div class="logo-text">
+      <span>Thy Oak Houses</span>
+      <span>Guest World Map</span>
+    </div>
+  </a>
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-value" id="stat-guests">–</div>
+      <div class="stat-label">Guests</div>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat">
+      <div class="stat-value" id="stat-countries">–</div>
+      <div class="stat-label">Countries</div>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat">
+      <div class="stat-value" id="stat-nights">–</div>
+      <div class="stat-label">Nights hosted</div>
+    </div>
+  </div>
+</header>
+
+<!-- Controls -->
+<div class="controls">
+  <span class="controls-label">Show:</span>
+  <button class="filter-btn active" id="btn-all"       onclick="setFilter('all')">All time</button>
+  <button class="filter-btn"        id="btn-6months"   onclick="setFilter('6months')">Last 6 months</button>
+  <button class="filter-btn"        id="btn-3months"   onclick="setFilter('3months')">Last 3 months</button>
+  <div class="spacer"></div>
+  <div class="last-updated">
+    <span class="dot"></span>
+    <span id="last-updated-text">Syncing…</span>
+  </div>
+</div>
+
+<!-- Map -->
+<div id="map"></div>
+
+<!-- Footer -->
+<div class="footer-strip">
+  <span>Thy Oak Houses · Thy, Denmark</span>
+  <span>Data sourced from Airbnb reservations</span>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+  // ─────────────────────────────────────────────────────────────
+  // CONFIGURATION — Replace with your deployed Apps Script URL
+  // ─────────────────────────────────────────────────────────────
+  const API_URL = 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE';
+  // Example: 'https://script.google.com/macros/s/AKfycbx.../exec'
+
+  // ─────────────────────────────────────────────────────────────
+  // MAP SETUP
+  // ─────────────────────────────────────────────────────────────
+  const map = L.map('map', {
+    center: [48, 15],
+    zoom: 3,
+    zoomControl: true,
+    attributionControl: true
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/">OpenStreetMap</a>',
+    maxZoom: 18
+  }).addTo(map);
+
+  // ─────────────────────────────────────────────────────────────
+  // STATE
+  // ─────────────────────────────────────────────────────────────
+  let allGuests   = [];   // full dataset from API
+  let activeFilter = 'all';
+  let markers      = [];
+
+  // ─────────────────────────────────────────────────────────────
+  // FILTER LOGIC
+  // ─────────────────────────────────────────────────────────────
+  function setFilter(filter) {
+    activeFilter = filter;
+
+    // Update button states
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-' + filter).classList.add('active');
+
+    renderMap(getFilteredGuests());
+  }
+
+  function getFilteredGuests() {
+    if (activeFilter === 'all') return allGuests;
+
+    const now      = new Date();
+    const months   = activeFilter === '6months' ? 6 : 3;
+    const cutoff   = new Date(now);
+    cutoff.setMonth(cutoff.getMonth() - months);
+
+    return allGuests.filter(g => {
+      const checkIn = new Date(g.CheckIn);
+      return checkIn >= cutoff;
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // RENDER MARKERS
+  // ─────────────────────────────────────────────────────────────
+  function renderMap(guests) {
+    // Clear existing markers
+    markers.forEach(m => map.removeLayer(m));
+    markers = [];
+
+    guests.forEach(guest => {
+      const lat = parseFloat(guest.Lat);
+      const lng = parseFloat(guest.Lng);
+      if (isNaN(lat) || isNaN(lng)) return;
+
+      // Custom round marker
+      const icon = L.divIcon({
+        className: '',
+        html: '<div class="custom-marker"></div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+        popupAnchor: [0, -14]
+      });
+
+      const nights  = calcNights(guest.CheckIn, guest.CheckOut);
+      const checkIn = formatDate(guest.CheckIn);
+      const checkOut = formatDate(guest.CheckOut);
+
+      const popup = `
+        <div class="popup-content">
+          <div class="popup-name">👤 ${escHtml(guest.Name)}</div>
+          <div class="popup-row">📅 <span>${checkIn} → ${checkOut}</span></div>
+          <div class="popup-row">🌙 <span>${nights} night${nights !== 1 ? 's' : ''}</span></div>
+          <div class="popup-location">📍 ${escHtml(guest.Location)}</div>
+        </div>`;
+
+      const marker = L.marker([lat, lng], { icon })
+        .bindPopup(popup)
+        .addTo(map);
+
+      markers.push(marker);
+    });
+
+    updateStats(guests);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // STATS
+  // ─────────────────────────────────────────────────────────────
+  function updateStats(guests) {
+    const countries = new Set(guests.map(g => {
+      // Rough country extraction from location string (last part after comma)
+      const parts = g.Location.split(',');
+      return parts[parts.length - 1].trim();
+    }));
+
+    const totalNights = guests.reduce((sum, g) => {
+      return sum + calcNights(g.CheckIn, g.CheckOut);
+    }, 0);
+
+    animateCount('stat-guests',   guests.length);
+    animateCount('stat-countries', countries.size);
+    animateCount('stat-nights',   totalNights);
+  }
+
+  function animateCount(id, target) {
+    const el    = document.getElementById(id);
+    const start = parseInt(el.textContent) || 0;
+    const diff  = target - start;
+    const duration = 600;
+    const startTime = performance.now();
+
+    function step(now) {
+      const progress = Math.min((now - startTime) / duration, 1);
+      const ease     = 1 - Math.pow(1 - progress, 3);
+      el.textContent = Math.round(start + diff * ease);
+      if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // HELPERS
+  // ─────────────────────────────────────────────────────────────
+  function calcNights(checkIn, checkOut) {
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const d1 = new Date(checkIn);
+    const d2 = new Date(checkOut);
+    if (isNaN(d1) || isNaN(d2)) return 0;
+    return Math.max(0, Math.round((d2 - d1) / msPerDay));
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    if (isNaN(d)) return dateStr;
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // FETCH DATA
+  // ─────────────────────────────────────────────────────────────
+  async function loadGuests() {
+    try {
+      // If no API URL set yet, use demo data
+      if (API_URL === 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE') {
+        allGuests = getDemoData();
+        renderMap(allGuests);
+        document.getElementById('last-updated-text').textContent = 'Demo mode — connect your Google Sheet';
+        return;
+      }
+
+      const res  = await fetch(API_URL);
+      const data = await res.json();
+      allGuests  = Array.isArray(data) ? data : (data.guests || []);
+
+      renderMap(getFilteredGuests());
+      document.getElementById('last-updated-text').textContent =
+        'Updated ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+    } catch (err) {
+      console.error('Failed to load guest data:', err);
+      document.getElementById('last-updated-text').textContent = 'Error loading data';
+      // Fallback to demo
+      allGuests = getDemoData();
+      renderMap(allGuests);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DEMO DATA (shown before the Apps Script is connected)
+  // ─────────────────────────────────────────────────────────────
+  function getDemoData() {
+    return [
+      { Name: 'Emma Nielsen',   CheckIn: '2024-06-15', CheckOut: '2024-06-22', Location: 'Copenhagen, Denmark',  Lat: 55.6761, Lng: 12.5683 },
+      { Name: 'Lars Müller',    CheckIn: '2024-07-01', CheckOut: '2024-07-07', Location: 'Hamburg, Germany',     Lat: 53.5511, Lng: 9.9937 },
+      { Name: 'Sophie Dupont',  CheckIn: '2024-07-10', CheckOut: '2024-07-14', Location: 'Paris, France',        Lat: 48.8566, Lng: 2.3522 },
+      { Name: 'James Wilson',   CheckIn: '2024-08-01', CheckOut: '2024-08-08', Location: 'London, UK',           Lat: 51.5074, Lng: -0.1278 },
+      { Name: 'Anna Kowalski',  CheckIn: '2024-08-15', CheckOut: '2024-08-20', Location: 'Warsaw, Poland',       Lat: 52.2297, Lng: 21.0122 },
+      { Name: 'Pieter van Dam', CheckIn: '2024-09-03', CheckOut: '2024-09-09', Location: 'Amsterdam, Netherlands', Lat: 52.3676, Lng: 4.9041 },
+      { Name: 'Ingrid Olsen',   CheckIn: '2024-09-20', CheckOut: '2024-09-25', Location: 'Oslo, Norway',          Lat: 59.9139, Lng: 10.7522 },
+      { Name: 'Mikael Svensson',CheckIn: '2024-10-01', CheckOut: '2024-10-05', Location: 'Stockholm, Sweden',    Lat: 59.3293, Lng: 18.0686 },
+      { Name: 'Clara Rossi',    CheckIn: '2025-01-12', CheckOut: '2025-01-18', Location: 'Milan, Italy',         Lat: 45.4654, Lng: 9.1859 },
+      { Name: 'Thomas Schmidt', CheckIn: '2025-02-20', CheckOut: '2025-02-24', Location: 'Berlin, Germany',      Lat: 52.5200, Lng: 13.4050 },
+      { Name: 'Mia Hansen',     CheckIn: '2025-03-08', CheckOut: '2025-03-14', Location: 'Aarhus, Denmark',      Lat: 56.1629, Lng: 10.2039 },
+      { Name: 'Luc Martin',     CheckIn: '2025-04-01', CheckOut: '2025-04-06', Location: 'Brussels, Belgium',    Lat: 50.8503, Lng: 4.3517 },
+    ];
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // INIT
+  // ─────────────────────────────────────────────────────────────
+  loadGuests().then(() => {
+    document.getElementById('overlay').classList.add('hidden');
+  });
+
+  // Auto-refresh every 30 minutes
+  setInterval(loadGuests, 30 * 60 * 1000);
+</script>
+</body>
+</html>
