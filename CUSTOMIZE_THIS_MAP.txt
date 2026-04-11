@@ -1,0 +1,421 @@
+================================================================================
+CUSTOMIZE THIS GUEST MAP — STEP-BY-STEP GUIDE
+For use with Google Antigravity IDE (Google's agent-focused VS Code fork)
+================================================================================
+
+WHAT YOU WILL BUILD
+-------------------
+This project is an interactive world map that automatically tracks where your
+Airbnb (or short-term rental) guests come from. It reads your Gmail inbox for
+Airbnb confirmation emails, pulls out each guest's home location, plots it on
+a map, and shows you stats like your top source cities and total earnings.
+
+By the end of these steps, you will have your own live version of this map —
+with your property's location, your brand colors, and your guest data.
+
+GitHub repo:
+https://github.com/lagoni77/thy-oak-houses-guest-map
+
+Estimated time: 45–60 minutes across all steps.
+No coding experience required — just follow each step in order.
+
+================================================================================
+STEP 1 — FORK THE REPO AND OPEN IT IN ANTIGRAVITY IDE
+================================================================================
+
+1a. Go to the GitHub repository:
+    https://github.com/lagoni77/thy-oak-houses-guest-map
+
+1b. Click the "Fork" button in the top-right corner.
+    - Choose your GitHub account as the owner.
+    - Keep the repo name as-is and click "Create fork".
+    - You now have your own personal copy of the project.
+
+1c. Open your fork in Google Antigravity IDE:
+    - In the IDE, open the Command Palette (Ctrl+Shift+P or Cmd+Shift+P).
+    - Type "Clone Repository" and select it.
+    - Paste your fork's GitHub URL (e.g. https://github.com/YOUR-USERNAME/thy-oak-houses-guest-map).
+    - Choose a local folder and click Open.
+
+1d. In the Explorer panel (left sidebar), you will see these key files:
+    - index.html      — the entire map frontend (this is what visitors see)
+    - Code.gs         — the backend that reads Gmail and stores guest data
+    - brand_assets/   — folder containing logo.png (your property marker icon)
+
+WHAT YOU JUST DID: You have your own copy of the project open in the IDE,
+ready to edit.
+
+================================================================================
+STEP 2 — CREATE YOUR GOOGLE SHEET (DATA STORAGE)
+================================================================================
+
+2a. Go to Google Sheets and create a new blank spreadsheet:
+    https://sheets.google.com
+
+2b. Click the big "+" (Blank spreadsheet) to create a new one.
+
+2c. Rename it something clear, like "My Guest Map Data".
+    - Click the title "Untitled spreadsheet" at the top-left and type your name.
+
+2d. Look at the URL in your browser. It will look like:
+    https://docs.google.com/spreadsheets/d/LONG_ID_HERE/edit
+    The LONG_ID_HERE part is your Spreadsheet ID. You do NOT need to copy it —
+    the script will connect automatically in the next step.
+
+2e. Leave this tab open. You will come back to it in Step 3.
+
+WHAT YOU JUST DID: You created the database where all guest records will live.
+The script will create all the column headers for you automatically.
+
+================================================================================
+STEP 3 — SET UP THE BACKEND SCRIPT INSIDE YOUR GOOGLE SHEET
+================================================================================
+
+The backend is a Google Apps Script that lives INSIDE your spreadsheet.
+This is important: you must create it from within the sheet, not separately.
+
+3a. In your Google Sheet (from Step 2), click the menu:
+    Extensions → Apps Script
+
+    A new browser tab opens with the Apps Script editor.
+    You will see a default function called "myFunction". Delete all of it.
+
+3b. Switch to Antigravity IDE. Open the file "Code.gs".
+    Select all the text (Ctrl+A or Cmd+A) and copy it (Ctrl+C or Cmd+C).
+
+3c. Switch back to the Apps Script editor tab.
+    Click inside the editor area and paste (Ctrl+V or Cmd+V).
+    You should now see the full script.
+
+3d. Save the script by clicking the floppy disk icon or pressing Ctrl+S.
+    Rename the project: click "Untitled project" at the top and type
+    "GuestMapBackend", then click Rename.
+
+3e. Run the setup function to create your sheet headers:
+    - In the function dropdown (next to the Run button), select "setupSheet".
+    - Click Run (the play button ▶).
+    - A popup will ask you to authorize access — click "Review permissions",
+      choose your Google account, click "Advanced" → "Go to GuestMapBackend
+      (unsafe)" → "Allow".
+    - You should see "Sheet setup complete!" in the Execution log at the bottom.
+    - Go back to your spreadsheet tab: the first row should now have column
+      headers (Listing, ID, Name, CheckIn, etc.).
+
+Apps Script documentation (for reference):
+https://developers.google.com/apps-script/guides/web
+
+WHAT YOU JUST DID: You installed the backend inside your spreadsheet.
+It is now authorized to access your Gmail and Google Sheet.
+
+================================================================================
+STEP 4 — ENABLE THE GMAIL API IN APPS SCRIPT
+================================================================================
+
+The script needs permission to read your Gmail inbox for Airbnb emails.
+
+4a. In the Apps Script editor, look at the left sidebar.
+    Click the "+" icon next to "Services".
+
+4b. Scroll down the list and find "Gmail API". Click it, then click "Add".
+    You will see "Gmail" appear under Services in the sidebar.
+
+4c. Save the script again (Ctrl+S).
+
+WHAT YOU JUST DID: The backend can now search your Gmail for Airbnb
+confirmation emails. It only reads emails — it cannot send or delete anything.
+
+================================================================================
+STEP 5 — DEPLOY THE BACKEND AND GET YOUR API URL
+================================================================================
+
+5a. In the Apps Script editor, click:
+    Deploy → New Deployment
+
+5b. In the dialog that opens:
+    - Click the gear icon next to "Type" and select "Web App".
+    - Description: type "Guest Map API" (optional but helpful).
+    - Execute as: Me
+    - Who has access: Anyone
+    - Click "Deploy".
+
+5c. A new dialog shows your Web App URL. It will look like:
+    https://script.google.com/macros/s/AKfycb.../exec
+
+    Copy this URL and save it somewhere (a sticky note, Notepad, etc.).
+    You will need it in Step 6.
+
+    Click "Done".
+
+Reference — deploying Apps Script as a Web App:
+https://developers.google.com/apps-script/guides/web#deploying_a_script_as_a_web_app
+
+WHAT YOU JUST DID: Your backend is now live on the internet as a private API.
+The frontend will call this URL every time someone loads your map page.
+
+================================================================================
+STEP 6 — CONNECT THE FRONTEND TO YOUR BACKEND
+================================================================================
+
+Now you will tell the map page where to find your data.
+
+6a. In Antigravity IDE, open "index.html".
+
+6b. Go to line 433. You will see:
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwAhW2.../exec';
+
+    This is the original owner's URL. You need to replace it with yours.
+
+6c. Delete the URL string between the single quotes and paste YOUR Web App URL
+    (the one you copied in Step 5c) in its place.
+
+    The line should now look like:
+    const API_URL = 'https://script.google.com/macros/s/YOUR_ID_HERE/exec';
+
+6d. Save the file (Ctrl+S).
+
+WHAT YOU JUST DID: The map frontend now knows how to talk to YOUR backend.
+When someone opens your map page, it will fetch your guest data.
+
+================================================================================
+STEP 7 — SET YOUR PROPERTY'S LOCATION ON THE MAP
+================================================================================
+
+The map currently centers on a property in Thisted, Denmark.
+You need to move the home-base marker to YOUR property.
+
+7a. First, look up your property's GPS coordinates:
+    https://www.latlong.net
+    - Type your address and click "Find".
+    - Note the Latitude and Longitude numbers (e.g. 51.5074 and -0.1278).
+
+7b. In "index.html", go to line 443. You will see:
+    const OAK = { lat: 57.04, lng: 8.42 };
+
+    Replace 57.04 with your latitude and 8.42 with your longitude.
+    Example for London: const OAK = { lat: 51.5074, lng: -0.1278 };
+
+7c. Now update the popup text that appears when someone clicks your marker.
+    On lines 580-582 you will see:
+        <div class="pop-city">Thy Oak Houses</div>
+        <div class="pop-country">Thisted, Nordjylland</div>
+        <div class="pop-stats">🌲 Tiny Oak House — 5 km til havet<br>...</div>
+
+    Replace "Thy Oak Houses" with your property name.
+    Replace "Thisted, Nordjylland" with your city and region.
+    Replace the pop-stats line with a short description of your property.
+
+7d. Save the file (Ctrl+S).
+
+WHAT YOU JUST DID: Your property is now correctly pinned on the map,
+with your name and description in the popup.
+
+================================================================================
+STEP 8 — CUSTOMIZE YOUR BRAND COLORS
+================================================================================
+
+The current color scheme is earthy green and cream. Change it to match your
+brand in just a few lines.
+
+8a. In "index.html", go to lines 15-26. You will see a block like this:
+    :root {
+      --green:      #183C29;
+      --green-mid:  #2a5c40;
+      --green-lite: #3d7a57;
+      --cream:      #eee9dd;
+      --ink:        #1a2e20;
+      ...
+    }
+
+8b. Replace the hex color values (the #XXXXXX codes) with your brand colors.
+    - --green is your primary/dark color (used for headers and the sidebar).
+    - --cream is your background color (light, neutral).
+    - --ink is your main text color (should be dark and readable).
+
+    You can keep --green-mid and --green-lite as slightly lighter versions
+    of your primary color.
+
+    Tool for exploring color combinations:
+    https://coolors.co
+
+    Tool for finding exact hex codes:
+    https://htmlcolorcodes.com
+
+8c. Save the file (Ctrl+S).
+
+    TIP: Open index.html in your browser using the Live Preview feature in
+    Antigravity IDE (right-click → Open with Live Server or use the preview
+    panel) to see your color changes instantly.
+
+WHAT YOU JUST DID: Your map now wears your brand colors throughout the
+entire interface.
+
+================================================================================
+STEP 9 — REPLACE THE LOGO (OPTIONAL BUT RECOMMENDED)
+================================================================================
+
+The home-base marker on the map shows a small logo icon.
+
+9a. Prepare your logo as a PNG file, ideally square (e.g. 80×80 pixels),
+    with a transparent background.
+
+9b. In Antigravity IDE, open the "brand_assets" folder in the Explorer panel.
+    Drag your logo PNG file into that folder. Name it "logo.png"
+    (replacing the existing file).
+
+    If you name it something else (e.g. "my-logo.png"), open index.html and
+    find line 572:
+        <img src="brand_assets/logo.png" ...>
+    Change "logo.png" to match your filename.
+
+9c. Save the file if you made the line 572 change.
+
+WHAT YOU JUST DID: Your logo now appears as the pin marking your property
+on the map.
+
+================================================================================
+STEP 10 — SET UP AUTOMATIC EMAIL SYNCING (HOURLY TRIGGER)
+================================================================================
+
+The backend script needs to run automatically every hour to scan for new
+Airbnb confirmation emails.
+
+10a. In the Apps Script editor, click the clock icon on the left sidebar.
+     This opens the "Triggers" panel.
+
+10b. Click the "+ Add Trigger" button (bottom-right of the panel).
+
+10c. Fill in the trigger settings:
+     - Choose which function to run: syncAirbnbEmails
+     - Choose which deployment should run: Head
+     - Select event source: Time-driven
+     - Select type of time based trigger: Hour timer
+     - Select hour interval: Every hour
+     - Click Save.
+
+10d. Authorize again if prompted (same steps as Step 3e).
+
+10e. To test that everything works RIGHT NOW (without waiting an hour):
+     - In the Apps Script function dropdown, select "testAddSampleGuest".
+     - Click Run ▶.
+     - Go to your spreadsheet tab — you should see a new row with a test
+       guest from Copenhagen, Denmark.
+     - Open your index.html in a browser (or Live Preview) — after refreshing,
+       the test guest should appear as a dot on the map.
+     - Once confirmed, you can delete that test row from the spreadsheet.
+
+WHAT YOU JUST DID: Your backend will now automatically scan your Gmail
+every hour and add new Airbnb guests to the map. No manual work needed.
+
+================================================================================
+STEP 11 — DEPLOY YOUR MAP TO THE INTERNET (VERCEL)
+================================================================================
+
+Right now the map only runs locally. Let's give it a public URL.
+
+11a. In Antigravity IDE, commit and push your changes to GitHub:
+     - Open the Source Control panel (the branch icon in the left sidebar).
+     - You will see your changed files listed.
+     - Type a commit message like "Customize map for [Your Property Name]".
+     - Click the checkmark to commit, then click "Sync Changes" to push.
+
+11b. Go to Vercel and sign in with your GitHub account:
+     https://vercel.com
+
+11c. Click "New Project".
+     - Find and select your fork of "thy-oak-houses-guest-map".
+     - Click "Import".
+
+11d. On the configuration screen:
+     - Framework Preset: Other (leave it — this is plain HTML, no build needed)
+     - Root Directory: leave as "./"
+     - Build Command: leave blank
+     - Output Directory: leave as "./"
+     - Click "Deploy".
+
+11e. Vercel will build and deploy in about 30 seconds.
+     You will get a live URL like: https://thy-oak-houses-guest-map.vercel.app
+
+     Click "Visit" to see your live map.
+
+Vercel documentation:
+https://vercel.com/docs/getting-started-with-vercel
+
+WHAT YOU JUST DID: Your guest map is now live on the internet. Anyone with
+the link can view your map. It will update automatically every time you push
+changes to GitHub.
+
+================================================================================
+QUICK REFERENCE — FILES YOU EDITED AND WHY
+================================================================================
+
+FILE             LINE(S)    WHAT YOU CHANGED
+---------------  ---------  --------------------------------------------------
+index.html       433        API_URL — your Google Apps Script Web App URL
+index.html       443        OAK lat/lng — your property's GPS coordinates
+index.html       15-26      CSS color variables — your brand colors
+index.html       580-582    Property name and description in the map popup
+index.html       572        Logo image path (only if you renamed logo.png)
+brand_assets/    logo.png   Your property's logo (replaces the original)
+Code.gs          (none)     Pasted as-is; no edits needed for basic setup
+
+================================================================================
+USEFUL LINKS
+================================================================================
+
+This project on GitHub:
+https://github.com/lagoni77/thy-oak-houses-guest-map
+
+Google Sheets (create your spreadsheet here):
+https://sheets.google.com
+
+Google Apps Script (your script editor opens from inside Sheets):
+https://script.google.com
+
+Apps Script Web App deployment docs:
+https://developers.google.com/apps-script/guides/web
+
+Leaflet.js map library reference (if you want to change how the map looks):
+https://leafletjs.com/reference.html
+
+GPS coordinate lookup:
+https://www.latlong.net
+
+Color palette explorer:
+https://coolors.co
+
+Hex color codes:
+https://htmlcolorcodes.com
+
+Vercel deployment docs:
+https://vercel.com/docs/getting-started-with-vercel
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+PROBLEM: The map loads but shows no guest dots.
+FIX: Check that your API_URL in index.html (line 433) is correct. Open the
+URL directly in your browser — you should see JSON data. If you see an error,
+redeploy your Apps Script (Deploy → Manage Deployments → Edit → Deploy).
+
+PROBLEM: testAddSampleGuest ran but nothing appeared on the map.
+FIX: Hard-refresh your browser (Ctrl+Shift+R). The map fetches data fresh
+on each page load. Also confirm the test row is in your spreadsheet.
+
+PROBLEM: syncAirbnbEmails runs but finds no emails.
+FIX: This script looks for emails from automated@airbnb.com with specific
+subject lines. If your Airbnb emails are in a different language or format,
+ask the IDE agent to help you adjust the GMAIL_QUERY variable in Code.gs.
+
+PROBLEM: I need to re-scan old emails.
+FIX: In Apps Script, run the "resetScanDate" function, then run
+"syncAirbnbEmails". It will scan all emails from the beginning.
+
+PROBLEM: My colors don't look right.
+FIX: Open browser DevTools (F12), go to the Elements tab, and inspect the
+CSS variables under the :root selector. Make sure your hex codes have the #
+symbol and exactly 6 characters (e.g. #1A2B3C).
+
+================================================================================
+END OF GUIDE
+================================================================================
