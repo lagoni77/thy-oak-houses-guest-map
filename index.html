@@ -530,6 +530,24 @@ const COUNTRY_MAP = {
   'usa':              'USA',
 };
 
+// City → Danish normalization
+const CITY_MAP = {
+  'copenhagen': 'København',
+  'københavn':  'København',
+  'hamburg':    'Hamborg',
+  'hamborg':    'Hamborg',
+  'aarhus':     'Aarhus',
+  'århus':      'Aarhus',
+  'berlin':     'Berlin',
+  'munich':     'München',
+  'münchen':    'München'
+};
+
+function normalizeCity(raw) {
+  const key = raw.trim().toLowerCase();
+  return CITY_MAP[key] || raw.trim();
+}
+
 // Strings that indicate the location is unknown / unparseable — skip these rows.
 const UNKNOWN_MARKERS = new Set([
   'unknown', 'ukendt', 'unknown listing', '', '0', 'n/a'
@@ -608,7 +626,7 @@ function buildGuests(rows) {
   const cityMap = {};
   rows.forEach(row => {
     const parts   = (row.Location || '').split(',');
-    const city    = parts[0].trim();
+    const city    = normalizeCity(parts[0]);
     const rawLand = parts.length > 1 ? parts[parts.length - 1].trim() : '';
     const country = normalizeCountry(rawLand);
 

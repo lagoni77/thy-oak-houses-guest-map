@@ -443,21 +443,32 @@ function setupSheet() {
 
 function testAddSampleGuest() {
   const sheet = getSheet();
-  const coords = getOrGeocodeLocation('Copenhagen, Denmark', sheet);
-  sheet.appendRow([
-    'Ocean Oak House | Stor Naturgrund | 1 km til havet',
-    'TOH-TEST001',
-    'Test Guest',
-    '2025-06-01',
-    '2025-06-07',
-    'Copenhagen, Denmark',
-    coords.lat,
-    coords.lng,
-    'TEST-EMAIL-ID-001',
-    6,
-    '5000,00 kr'
-  ]);
-  Logger.log('Sample guest added!');
+  const samples = [
+    { city: 'Copenhagen, Denmark', listing: 'Ocean Oak House', payout: '5.200,00 kr', nights: 4 },
+    { city: 'Copenhagen, Denmark', listing: 'Tiny Oak House', payout: '3.100,00 kr', nights: 3 },
+    { city: 'Copenhagen, Denmark', listing: 'Ocean Oak House', payout: '4.800,00 kr', nights: 4 },
+    { city: 'Hamburg, Germany', listing: 'Ocean Oak House', payout: '6.500,00 kr', nights: 5 },
+    { city: 'Hamburg, Germany', listing: 'Tiny Oak House', payout: '2.800,00 kr', nights: 2 },
+    { city: 'Aarhus, Denmark', listing: 'Tiny Oak House', payout: '3.400,00 kr', nights: 3 }
+  ];
+
+  samples.forEach((s, i) => {
+    const coords = getOrGeocodeLocation(s.city, sheet);
+    sheet.appendRow([
+      s.listing + ' | Stor Naturgrund',
+      'TOH-MOCK-' + (100 + i),
+      'Mock Guest ' + (i + 1),
+      '2025-07-0' + (i + 1),
+      '2025-07-0' + (i + 5),
+      s.city,
+      coords.lat,
+      coords.lng,
+      'MOCK-EMAIL-' + i,
+      s.nights,
+      s.payout
+    ]);
+  });
+  Logger.log('Added ' + samples.length + ' sample guests!');
 }
 
 function resetScanDate() {
