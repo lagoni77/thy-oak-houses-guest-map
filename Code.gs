@@ -476,6 +476,24 @@ function resetScanDate() {
   Logger.log('SUCCESS! Din LAST_SCAN_DATE er nu slettet. Du kan nu køre syncAirbnbEmails igen, og den vil trække alt det gamle.');
 }
 
+/**
+ * Wipes all guest data from the sheet (except the header) and resets the scan date.
+ * Use this if you want to start fresh or re-import everything.
+ */
+function clearGuestSheet() {
+  const sheet = getSheet();
+  const lastRow = sheet.getLastRow();
+  
+  if (lastRow > 1) {
+    sheet.deleteRows(2, lastRow - 1);
+  }
+  
+  // Also reset the scan date property so syncAirbnbEmails() starts from the beginning
+  resetScanDate();
+  
+  Logger.log('✅ Sheet cleared and scan date reset. You are now starting with a fresh slate.');
+}
+
 // ── DEBUG TOOL ───────────────────────────────────────────────────────────────
 /**
  * Run this function manually in Apps Script to inspect the raw plain-text body
