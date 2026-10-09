@@ -24,8 +24,8 @@ classifies them: warning after 3 h, Telegram after 6 h (approved 2026-10-10).
 
 ## Tests
 
-    node --test tests/                                         # Heartbeat.gs unit tests; hook tests skip
-    GUEST_MAP_CODE_GS=/path/to/patched/Code.gs node --test tests/   # + hook integration tests
+    node --test 'tests/*.test.mjs'                             # Heartbeat.gs unit tests; hook tests skip
+    GUEST_MAP_CODE_GS=/path/to/patched/Code.gs node --test 'tests/*.test.mjs'   # + hook integration tests
 
 ## Deployment prerequisites (each needs Brian's explicit approval)
 
