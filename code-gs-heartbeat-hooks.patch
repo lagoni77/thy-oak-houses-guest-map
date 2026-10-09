@@ -1,0 +1,80 @@
+--- a/Code.gs
++++ b/Code.gs
+@@ -83,6 +83,11 @@
+  * Set this as a Time-driven trigger (every hour).
+  */
+ function syncAirbnbEmails() {
++  // Signal House producer heartbeat (Heartbeat.gs) wraps the run.
++  return withHeartbeat_('bookings', syncAirbnbEmailsRun_);
++}
++
++function syncAirbnbEmailsRun_() {
+   const sheet   = getSheet();
+   const existingEmailIds = getExistingEmailIds(sheet);
+   const newCols = ensureNewColumns_(sheet); // resolve/append Guests/BookingUrl/… by name
+@@ -106,7 +111,7 @@
+     threads = searchAll_(queryWithDate); // paginated — never silently drops past ~500 matches
+   } catch (e) {
+     Logger.log(`Error searching Gmail: ${e}`);
+-    return;
++    throw heartbeatFailure_('gmail-search-failed'); // recorded + swallowed by withHeartbeat_
+   }
+ 
+   Logger.log(`Found ${threads.length} thread(s)`);
+@@ -176,6 +181,7 @@
+   props.setProperty('LAST_SCAN_DATE', today);
+ 
+   Logger.log(`Sync complete. Added ${newRowsCount} new guest(s).`);
++  return newRowsCount;
+ }
+ 
+ // ── EMAIL PARSER ─────────────────────────────────────────────────────────────
+@@ -571,9 +577,13 @@
+     Logger.log('buildPayoutSummary error: ' + err.message);
+     payouts = null;
+   }
++
++  // Producer heartbeats (Signal House) only in the keyed private view.
++  const body = { guests: guests, payouts: payouts };
++  if (isPrivate) body.heartbeats = readHeartbeats_();
+ 
+   return ContentService
+-    .createTextOutput(JSON.stringify({ guests: guests, payouts: payouts }))
++    .createTextOutput(JSON.stringify(body))
+     .setMimeType(ContentService.MimeType.JSON);
+ }
+ 
+@@ -1121,10 +1131,15 @@
+  * Deduplicates by Gmail message ID. Set as an hourly trigger.
+  */
+ function syncPayoutEmails() {
++  // Signal House producer heartbeat (Heartbeat.gs) wraps the run.
++  return withHeartbeat_('payouts', syncPayoutEmailsRun_);
++}
++
++function syncPayoutEmailsRun_() {
+   const sheet = getPayoutSheet();
+   if (!sheet) {
+     Logger.log('PayoutData sheet missing — run setupPayoutSheet() first.');
+-    return;
++    throw heartbeatFailure_('payout-sheet-missing'); // recorded + swallowed by withHeartbeat_
+   }
+ 
+   const existingIds = getExistingPayoutIds(sheet);
+@@ -1142,7 +1157,7 @@
+     threads = searchAll_(query);
+   } catch (e) {
+     Logger.log('Error searching Gmail for payouts: ' + e);
+-    return;
++    throw heartbeatFailure_('gmail-search-failed'); // recorded + swallowed by withHeartbeat_
+   }
+   Logger.log('Found ' + threads.length + ' payout thread(s)');
+ 
+@@ -1179,6 +1194,7 @@
+   const today = Utilities.formatDate(new Date(), 'Europe/Copenhagen', 'yyyy/MM/dd');
+   props.setProperty('LAST_PAYOUT_SCAN_DATE', today);
+   Logger.log('Payout sync complete. Added ' + added + ' new payout(s).');
++  return added;
+ }
+ 
+ function resetPayoutScanDate() {
