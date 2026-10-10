@@ -14,7 +14,7 @@ test('a successful run with zero new rows advances lastSuccessAt', () => {
   assert.equal(out, 0);
   assert.deepEqual(beat(g, 'bookings'), {
     producer: 'gas:guest-map:syncAirbnbEmails', lastAttemptAt: '2026-10-10T10:00:00.000Z',
-    lastSuccessAt: '2026-10-10T10:00:00.000Z', lastErrorCode: null, lastNewRows: 0,
+    lastSuccessAt: '2026-10-10T10:00:00.000Z', lastErrorCode: null, lastNewRows: 0, openIssues: null,
   });
 });
 
@@ -27,7 +27,7 @@ test('a handled failure records the attempt and code but keeps the earlier succe
   assert.equal(out, undefined);
   assert.deepEqual(beat(g, 'payouts'), {
     producer: 'gas:guest-map:syncPayoutEmails', lastAttemptAt: '2026-10-10T11:00:00.000Z',
-    lastSuccessAt: '2026-10-10T10:00:00.000Z', lastErrorCode: 'gmail-search-failed', lastNewRows: 2,
+    lastSuccessAt: '2026-10-10T10:00:00.000Z', lastErrorCode: 'gmail-search-failed', lastNewRows: 2, openIssues: null,
   });
 });
 
@@ -57,4 +57,22 @@ test('readHeartbeats_ returns both collectors, null when never run, and tolerate
 
 test('an unknown collector name is refused', () => {
   assert.throws(() => gas().context.withHeartbeat_('pricing', () => 0), /unknown collector/);
+});
+
+test('open parse issues are carried on the heartbeat and survive later runs until updated', () => {
+  const g = gas();
+  g.context.withHeartbeat_('bookings', () => 1);
+  g.context.setHeartbeatOpenIssues_('bookings', 2);
+  assert.equal(beat(g, 'bookings').openIssues, 2);
+  g.context.withHeartbeat_('bookings', () => 0);
+  assert.equal(beat(g, 'bookings').openIssues, 2, 'a run that does not recount keeps the last count');
+  g.context.setHeartbeatOpenIssues_('bookings', 0);
+  assert.equal(beat(g, 'bookings').openIssues, 0);
+  assert.equal(JSON.parse(JSON.stringify(g.context.readHeartbeats_())).bookings.openIssues, 0);
+});
+
+test('openIssues accepts only non-negative integers', () => {
+  const g = gas();
+  g.context.setHeartbeatOpenIssues_('bookings', -1);
+  assert.equal(beat(g, 'bookings').openIssues, null);
 });

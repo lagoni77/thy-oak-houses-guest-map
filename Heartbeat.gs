@@ -2,7 +2,8 @@
 // PRODUCER HEARTBEATS — Signal House (LeonidOS), staged 2026-10-10
 //
 // Records, per collector, when it last ATTEMPTED and last SUCCESSFULLY checked
-// Gmail. A run that finds no new emails is still a success; success advances
+// Gmail, plus how many found emails it could not read (openIssues). A heartbeat
+// proves the collector ran — never that the booking data is complete or correct. A run that finds no new emails is still a success; success advances
 // only after the collector completed. Stored in Script Properties
 // (HEARTBEAT_bookings / HEARTBEAT_payouts) and exposed read-only by doGet() in
 // the private (keyed) view as `heartbeats`.
@@ -31,13 +32,14 @@ function readHeartbeat_(collector) {
 }
 
 function writeHeartbeat_(collector, patch) {
-  var prev = readHeartbeat_(collector) || { lastSuccessAt: null, lastErrorCode: null, lastNewRows: null };
+  var prev = readHeartbeat_(collector) || { lastSuccessAt: null, lastErrorCode: null, lastNewRows: null, openIssues: null };
   var next = {
     producer: HEARTBEAT_COLLECTORS[collector],
     lastAttemptAt: patch.lastAttemptAt !== undefined ? patch.lastAttemptAt : prev.lastAttemptAt,
     lastSuccessAt: patch.lastSuccessAt !== undefined ? patch.lastSuccessAt : prev.lastSuccessAt,
     lastErrorCode: patch.lastErrorCode !== undefined ? patch.lastErrorCode : prev.lastErrorCode,
-    lastNewRows: patch.lastNewRows !== undefined ? patch.lastNewRows : prev.lastNewRows
+    lastNewRows: patch.lastNewRows !== undefined ? patch.lastNewRows : prev.lastNewRows,
+    openIssues: patch.openIssues !== undefined ? patch.openIssues : (prev.openIssues !== undefined ? prev.openIssues : null)
   };
   PropertiesService.getScriptProperties().setProperty(heartbeatKey_(collector), JSON.stringify(next));
 }
@@ -72,6 +74,15 @@ function withHeartbeat_(collector, run) {
     lastNewRows: typeof newRows === 'number' ? newRows : null
   });
   return newRows;
+}
+
+/**
+ * Emails the collector found but could not read or parse (see Lifecycle.gs
+ * ParseIssues). A successful check with open issues is NOT a complete one.
+ */
+function setHeartbeatOpenIssues_(collector, count) {
+  heartbeatKey_(collector);
+  writeHeartbeat_(collector, { openIssues: Number.isInteger(count) && count >= 0 ? count : null });
 }
 
 function readHeartbeats_() {
