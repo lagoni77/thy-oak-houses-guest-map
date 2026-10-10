@@ -14,7 +14,7 @@ source_ref:
 ---
 # Coming-guests repair — rollout and existing-data repair (STAGED, NOT DEPLOYED)
 
-Status 2026-10-10 (review round 2): built and tested locally. **No GAS push, no Sheet change, no Airbnb change, no notification.**
+Status 2026-10-10 (review round 3): built and tested locally. **No GAS push, no Sheet change, no Airbnb change, no notification.**
 Every step below that touches production needs Brian's explicit approval at that step.
 
 ## What changes
@@ -63,8 +63,14 @@ The accepted-change notice may carry only a reservation-detail link and no dates
 2. **LeonidOS:** before applying the arrival cutoff, each flagged row is looked up by reservation code in Airbnb's own iCal.
    - **Found:** iCal dates are used, labelled `DatesSource: airbnb-calendar`.
    - **Not found, or the calendar is unavailable:** the row keeps its dates with `DatesUnverified`, shown on the phone and dashboard as "datoer ændret — ikke bekræftet".
+   - **Calendar down after an earlier successful check:** the earlier calendar dates are kept (`DatesStale`, with the original retrieval time in `DatesVerifiedAt`) instead of falling back to the obsolete Sheet dates.
+   - **Calendar down with no earlier evidence:** the row stays listed as unverified even when its obsolete Sheet dates have passed the arrival cutoff.
+   - **House feed read but the code is absent:** the reservation is not current or future in Airbnb (past, or cancelled ahead of the Sheet). Earlier evidence is dropped and the normal cutoff applies.
+   - Calendar evidence lives in node memory; a restart starts without it.
+   - **Disclosure:** the phone and dashboard show the calendar outage (by house), stale calendar dates with their retrieval time, and the unverified reason.
    - Read-only shape check 2026-10-10 (counts only): every `Reserved` event in both house feeds carries a reservation code plus DTSTART/DTEND — Tiny 9/9, Ocean 8/8.
    - iCal covers current and future reservations only, which is exactly the arrivals window.
+   - `DatesVerifiedAt` is the node's **retrieval** time for the calendar. Airbnb publishes no observation time for the feed.
 3. **Not yet done:** the sheet itself is not rewritten from iCal, so the Revenue and Guest Map history keeps the last known dates with the flag. A later step could write calendar-verified dates back through the logged path; that needs its own approval.
 
 ## Rollout order
@@ -78,7 +84,7 @@ The accepted-change notice may carry only a reservation-detail link and no dates
 2. **GAS, in a private rollout folder outside git and Dropbox.**
    1. `clasp clone` the live script. Confirm `Code.js` and `Heartbeat.js` still byte-match v20; if not, stop and reconcile.
    2. Apply the patch to `Code.js`. Add `Lifecycle.gs` as `Lifecycle.js`. Replace `Heartbeat.js` with the branch `Heartbeat.gs`.
-   3. Run `GUEST_MAP_CODE_GS=<patched Code.js> node --test 'tests/*.test.mjs'`. Expect 99/99.
+   3. Run `GUEST_MAP_CODE_GS=<patched Code.js> node --test 'tests/*.test.mjs'`. Expect 104/104.
    4. **Leave `LIFECYCLE_APPLY` unset.**
    5. Run `clasp push`.
       ⚠ **Time-driven triggers run HEAD, so this activates the new collector immediately.** The pinned web-app deployment does not change until step 6.
@@ -127,9 +133,16 @@ The accepted-change notice may carry only a reservation-detail link and no dates
 - **A failing cell write** marks its entry `failed` and is retried on the next run under a new entry.
 - **If the log append itself fails,** no cell is changed.
 
+## What the booking heartbeat does and does not cover
+
+The `toh.bookings` heartbeat (Signal House) covers the **GAS booking collector** only: whether it ran, and how many emails it could not read (`openIssues`). It says nothing about:
+- **the Airbnb calendar:** freshness or availability. The calendar has no producer heartbeat; its retrieval state is disclosed in `dateReconciliation`, on the phone and on the dashboard.
+- **the lifecycle switch:** whether cancellations or changes have been applied.
+- **the bookings themselves:** whether they are complete or correct.
+
 ## Not changed (policy preserved)
 
-- Signal House 3 h warning / 6 h Telegram age policy. `openIssues` and unverified dates are shown but do **not** alert; data-quality alerting needs its own approved contract.
+- Signal House 3 h warning / 6 h Telegram age policy. `openIssues`, unverified dates and calendar outages are shown but do **not** alert; data-quality alerting needs its own approved contract.
 - A collector heartbeat is shown as "ran on time" only, never as proof that bookings are complete or correct.
 - `auditMissingBookings` (daily email) is unchanged. It still skips messages it cannot parse; those are now visible as `ParseIssues` from the sync.
 - Public feed: `{guests, payouts}` only. `heartbeats` and `DatesUnverifiedSince` are keyed/private. Issue, ledger and log sheets are never served.
