@@ -234,7 +234,9 @@ function issueRows_() {
 function recordParseIssue_(emailId, collector, reason, emailDay) {
   var sheet = lcSheet_(ISSUES_SHEET, ISSUE_HEADERS);
   var nowIso = new Date().toISOString();
-  var open = issueRows_().filter(function (x) { return x.emailId === String(emailId) && !x.resolvedAt; })[0];
+  var rows = issueRows_().filter(function (x) { return x.emailId === String(emailId); });
+  if (rows.some(function (x) { return /^dismissed /.test(String(x.resolvedAt)); })) return; // a human ruled it out
+  var open = rows.filter(function (x) { return !x.resolvedAt; })[0];
   if (open) {
     sheet.getRange(open.row, 3).setValue(reason);
     sheet.getRange(open.row, 6).setValue(nowIso);
@@ -249,6 +251,19 @@ function resolveParseIssue_(emailId) {
   issueRows_().forEach(function (x) {
     if (x.emailId === String(emailId) && !x.resolvedAt) sheet.getRange(x.row, 8).setValue(new Date().toISOString());
   });
+}
+
+/**
+ * Manual (editor): mark an email that will never parse — e.g. a non-booking
+ * template caught by the subject query — as dismissed, with a reason, so it
+ * stops holding the scan bookmark and is not re-opened. Returns false if no
+ * open issue exists for that email id.
+ */
+function dismissParseIssue(emailId, why) {
+  var sheet = lcSheet_(ISSUES_SHEET, ISSUE_HEADERS);
+  var open = issueRows_().filter(function (x) { return x.emailId === String(emailId) && !x.resolvedAt; });
+  open.forEach(function (x) { sheet.getRange(x.row, 8).setValue('dismissed ' + new Date().toISOString() + ' ' + String(why || '').slice(0, 80)); });
+  return open.length > 0;
 }
 
 function openParseIssues_(collector) {
@@ -287,8 +302,18 @@ function guestColumns_(headers) {
 
 function isCancelledStatus_(v) { return /(cancelled|canceled|aflyst|annuller|annuler|afbestilt)/i.test(String(v || '')); }
 
+var LIFECYCLE_LOG_HEADERS = ['At', 'Row', 'Code', 'Field', 'Old', 'New'];
+
 function applyReservationState_(sheet, values, cols, code, state, events, mode, dryRun) {
-  var write = function (r, c, v) { if (!dryRun) sheet.getRange(r, c).setValue(v); };
+  var fieldName = function (c) { return c === cols.status ? 'Status' : c === cols.checkIn ? 'CheckIn' : c === cols.checkOut ? 'CheckOut' : 'Nights'; };
+  // Every applied write is logged with its old value (rollback: write Old back).
+  var write = function (r, c, v) {
+    if (dryRun) return;
+    var old = values[r - 1][c - 1];
+    sheet.getRange(r, c).setValue(v);
+    lcSheet_('LifecycleLog', LIFECYCLE_LOG_HEADERS).appendRow([new Date().toISOString(), r, code, fieldName(c),
+      c === cols.checkIn || c === cols.checkOut ? cellDay_(old) : (old == null ? '' : old), v]);
+  };
   if (mode === 'off') return 'disabled';
   if (!cols.bookingUrl) return 'row-not-found';
   var rowNo = -1;

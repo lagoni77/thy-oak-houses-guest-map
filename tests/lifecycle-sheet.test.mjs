@@ -140,3 +140,37 @@ test('mode values other than off/cancellations/all fall back to off', () => {
   assert.equal(s.run().mode, 'off');
   assert.equal(statusOf(s), '');
 });
+
+test('every applied lifecycle write is logged with old and new values for rollback', () => {
+  const s = setup({ messages: [changeMsg('x1', 'HMAAAAAAA1', 'tirs. 3. nov.   fre. 6. nov.'), cancelMsg('c9', 'HMAAAAAAA1', '2026-10-09T12:00:00Z')], mode: 'all' });
+  s.run();
+  const log = s.book.LifecycleLog.data;
+  assert.deepEqual(log[0], ['At', 'Row', 'Code', 'Field', 'Old', 'New']);
+  assert.deepEqual(log.slice(1).map((r) => r.slice(1)), [[2, 'HMAAAAAAA1', 'Status', '', 'Cancelled']]);
+});
+
+test('date changes log each changed field', () => {
+  const s = setup({ messages: [changeMsg('x1', 'HMAAAAAAA1', 'tirs. 3. nov.   fre. 6. nov.')], mode: 'all' });
+  s.run();
+  assert.deepEqual(s.book.LifecycleLog.data.slice(1).map((r) => r.slice(3)), [['CheckIn', '2026-11-02', '2026-11-03'], ['CheckOut', '2026-11-05', '2026-11-06']]);
+});
+
+test('dry runs never write the lifecycle log', () => {
+  const s = setup({ messages: [cancelMsg('c1', 'HMAAAAAAA1')] });
+  s.run();
+  s.context.previewLifecycle('cancellations');
+  assert.equal(s.book.LifecycleLog, undefined);
+});
+
+test('dismissParseIssue releases a permanently unparseable email from the bookmark, with a recorded reason', () => {
+  const s = setup({ messages: [changeMsg('x1', 'HMAAAAAAA1', 'ingen datoer', '2026-10-03T09:00:00Z')], mode: 'all' });
+  s.run();
+  assert.equal(s.store.get('LAST_LIFECYCLE_SCAN_DATE'), '2026/10/03');
+  assert.equal(s.context.dismissParseIssue('x1', 'not a stay change'), true);
+  assert.equal(s.context.openParseIssues_().length, 0);
+  assert.match(String(s.book.ParseIssues.data[1][7]), /^dismissed /);
+  assert.equal(s.context.dismissParseIssue('nope', 'x'), false);
+  s.run();
+  assert.equal(s.context.openParseIssues_().length, 0, 'a dismissed email is not re-opened by the next scan');
+  assert.equal(s.store.get('LAST_LIFECYCLE_SCAN_DATE'), '2026/10/10');
+});
