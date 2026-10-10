@@ -34,8 +34,8 @@ export function createSheet(name, rows = []) {
   return sheet;
 }
 
-export function createMessage({ id, subject, body = '', html = '', date }) {
-  return { getId: () => id, getSubject: () => subject, getPlainBody: typeof body === 'function' ? body : () => body, getBody: () => html, getDate: () => new Date(date) };
+export function createMessage({ id, subject, body = '', html = '', date, thread = null }) {
+  return { thread: thread || id, getId: () => id, getSubject: () => subject, getPlainBody: typeof body === 'function' ? body : () => body, getBody: () => html, getDate: () => new Date(date) };
 }
 
 export function createGas({ files, now = () => new Date('2026-10-10T10:00:00.000Z'), sheets = {}, messages = [] }) {
@@ -55,8 +55,13 @@ export function createGas({ files, now = () => new Date('2026-10-10T10:00:00.000
     search: (query) => {
       gmail.queries.push(query);
       const phrases = [...String(query).matchAll(/subject:"([^"]+)"/g)].map((m) => m[1].toLowerCase());
-      const hits = messages.filter((m) => !phrases.length || phrases.some((p) => m.getSubject().toLowerCase().includes(p)));
-      return hits.map((m) => ({ getMessages: () => [m] }));
+      // Gmail returns whole threads: a thread matches if any message does, and
+      // getMessages() returns every message in it (replies included).
+      const threads = new Map();
+      for (const m of messages) { if (!threads.has(m.thread)) threads.set(m.thread, []); threads.get(m.thread).push(m); }
+      return [...threads.values()]
+        .filter((msgs) => !phrases.length || msgs.some((m) => phrases.some((p) => m.getSubject().toLowerCase().includes(p))))
+        .map((msgs) => ({ getMessages: () => msgs }));
     },
     getMessageById: (id) => messages.find((m) => m.getId() === id) || null,
   };

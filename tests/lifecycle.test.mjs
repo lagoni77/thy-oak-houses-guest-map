@@ -129,3 +129,15 @@ test('scan bookmark never advances past the oldest open parse issue', () => {
   assert.equal(c.heldScanBookmark_('2026/10/10', [{ emailDay: '2026-10-03' }, { emailDay: '2026-10-07' }]), '2026/10/03');
   assert.equal(c.heldScanBookmark_('2026/10/10', [{ emailDay: 'garbage' }]), '2026/10/10');
 });
+
+test('verified accepted-change subject "Reservationen blev opdateret" is a verified change', () => {
+  const c = g().classifyAirbnbSubject_('Reservationen blev opdateret');
+  assert.equal(c.kind, 'changed');
+  assert.equal(c.verified, true);
+});
+
+test('change REQUESTS never classify as accepted changes', () => {
+  for (const subject of ['Anmodning om ændring af reservation', 'Ændringsanmodning for reservation HMABC12345', 'Reservation change request: HMABC12345', 'Request to change reservation HMABC12345']) {
+    assert.equal(g().classifyAirbnbSubject_(subject).kind, 'other', subject);
+  }
+});

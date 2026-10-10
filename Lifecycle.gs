@@ -15,8 +15,8 @@
 // - Parse issues are recorded (email id + reason code only, no content) and
 //   hold the scan bookmark so failed emails stay inside the re-scan window.
 //
-// Change-accepted subject patterns are NOT verified against real Airbnb mail;
-// see CHANGE_SUBJECTS and COMING_GUESTS_REPAIR.md before enabling them.
+// Accepted changes: "Reservationen blev opdateret" is verified; other wordings in
+// CHANGE_SUBJECTS are not — see COMING_GUESTS_REPAIR.md. Change requests are ignored.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 var DK_MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, maj: 5, jun: 6, jul: 7, aug: 8, sep: 9, okt: 10, nov: 11, dec: 12 };
@@ -113,12 +113,17 @@ function validateStay_(stay, statedNights) {
 var CONFIRMED_SUBJECTS = [/Bekræftet reservation/i, /Reservation confirmed/i, /Ny bekræftet booking/i];
 // Verified: auditMissingBookings has matched these in production.
 var CANCELLED_SUBJECTS = [/^(?:Annulleret|Cancelled|Canceled):\s*Reservation\s+([A-Z0-9]{6,12})\b/i];
-// UNVERIFIED candidates for an accepted reservation change. Check with
-// classifyRecentAirbnbSubjects() before enabling change application.
+// Verified (Codex review 2026-10-10, Gmail): an ACCEPTED change arrives as
+// "Reservationen blev opdateret". The code is taken from the body link.
+var VERIFIED_CHANGE_SUBJECTS = [/^Reservationen blev opdateret\b/i];
+// UNVERIFIED candidates (English/other wording). Check with
+// classifyRecentAirbnbSubjects() before relying on them.
 var CHANGE_SUBJECTS = [
   /Reservation\s+(?:altered|changed|change accepted)[:\s-]*(HM[A-Z0-9]{6,10})?/i,
   /(?:Reservationsændring|Ændring af reservation|Reservationen er ændret)[^A-Z0-9]*(HM[A-Z0-9]{6,10})?/i,
 ];
+// Change REQUESTS (not yet accepted) must never update state.
+var CHANGE_REQUEST_SUBJECT = /anmodning|request|ændringsanmodning/i;
 
 function classifyAirbnbSubject_(subject) {
   var s = String(subject || '');
@@ -126,6 +131,10 @@ function classifyAirbnbSubject_(subject) {
   for (var i = 0; i < CANCELLED_SUBJECTS.length; i++) {
     m = s.match(CANCELLED_SUBJECTS[i]);
     if (m) return { kind: 'cancelled', code: m[1].toUpperCase(), verified: true };
+  }
+  if (CHANGE_REQUEST_SUBJECT.test(s)) return { kind: 'other', code: null, verified: false };
+  for (i = 0; i < VERIFIED_CHANGE_SUBJECTS.length; i++) {
+    if (VERIFIED_CHANGE_SUBJECTS[i].test(s)) return { kind: 'changed', code: null, verified: true };
   }
   for (i = 0; i < CHANGE_SUBJECTS.length; i++) {
     m = s.match(CHANGE_SUBJECTS[i]);
@@ -190,7 +199,8 @@ var ISSUE_HEADERS = ['EmailID', 'Collector', 'Reason', 'EmailDay', 'FirstSeenAt'
 var LEDGER_SHEET = 'ReservationEvents';
 var LEDGER_HEADERS = ['EmailID', 'Code', 'Kind', 'EventAt', 'CheckIn', 'CheckOut', 'RecordedAt'];
 var LIFECYCLE_QUERY = 'from:automated@airbnb.com (subject:"Annulleret: Reservation" OR subject:"Cancelled: Reservation" OR ' +
-  'subject:"Canceled: Reservation" OR subject:"Reservation altered" OR subject:"Reservationsændring" OR subject:"Ændring af reservation")';
+  'subject:"Canceled: Reservation" OR subject:"Reservationen blev opdateret" OR subject:"Reservation altered" OR ' +
+  'subject:"Reservationsændring" OR subject:"Ændring af reservation")';
 var LIFECYCLE_MODES = { off: true, cancellations: true, all: true };
 
 function lcSheet_(name, headers) {

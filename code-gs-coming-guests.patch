@@ -8,7 +8,7 @@
  
    threads.forEach(thread => {
      thread.getMessages().forEach(message => {
-@@ -127,15 +128,25 @@
+@@ -127,15 +128,28 @@
          return;
        }
  
@@ -16,7 +16,9 @@
 -      const htmlBody  = message.getBody(); // needed for the guest profile photo
 -      const subject  = message.getSubject();
 -      const parsed   = parseAirbnbEmail(body, subject, new Date(message.getDate()), htmlBody);
--
++      // Gmail returns whole threads; only the confirmation messages in them are bookings.
++      if (classifyAirbnbSubject_(message.getSubject()).kind !== 'confirmed') return;
+ 
 -      if (!parsed) {
 -        Logger.log(`Could not parse email ${emailId} (Subject: ${subject}) — skipping`);
 +      // Coming-guests repair (Lifecycle.gs): a failed read/parse is a recorded,
@@ -41,7 +43,7 @@
  
        // Geocode only if location is new (saves API quota)
        const coords = getOrGeocodeLocation(parsed.location, sheet);
-@@ -170,16 +181,31 @@
+@@ -170,16 +184,31 @@
  
        existingEmailIds.add(emailId);
        newRowsCount++;
@@ -75,7 +77,7 @@
    return newRowsCount;
  }
  
-@@ -261,12 +287,18 @@
+@@ -261,12 +290,18 @@
      // ── DATES ───────────────────────────────────────────────────────────────
      // Parse Danish Dates specifically
      // Pattern looks for: "Indtjekning \n\n tirs. 7. jul."

@@ -100,3 +100,13 @@ test('public/private separation: heartbeats (with openIssues) only in the keyed 
   assert.equal(priv.heartbeats.bookings.openIssues, 1);
   for (const f of [pub, priv]) assert.doesNotMatch(JSON.stringify(f), /dates-missing|ReservationEvents|ParseIssues|m9/);
 });
+
+test('non-confirmation messages inside a confirmation thread are skipped, not parsed or raised as issues', { skip }, () => {
+  const s = load([
+    confirm('m1', 'HMAAAAAAA1'),
+    createMessage({ id: 'm1b', thread: 'm1', subject: 'Svar fra Synthetic Guest', body: 'Hej, vi glæder os!', date: '2026-10-09T10:00:00Z' }),
+  ]);
+  assert.equal(s.sync(), 1);
+  assert.equal(s.guestData.data.length, 2);
+  assert.equal(s.beat().openIssues, 0);
+});

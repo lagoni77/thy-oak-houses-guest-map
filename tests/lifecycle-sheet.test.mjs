@@ -174,3 +174,21 @@ test('dismissParseIssue releases a permanently unparseable email from the bookma
   assert.equal(s.context.openParseIssues_().length, 0, 'a dismissed email is not re-opened by the next scan');
   assert.equal(s.store.get('LAST_LIFECYCLE_SCAN_DATE'), '2026/10/10');
 });
+
+test('a verified "Reservationen blev opdateret" email updates dates in mode all, using the body code', () => {
+  const msg = createMessage({ id: 'u1', subject: 'Reservationen blev opdateret', date: '2026-10-09T09:00:00Z',
+    body: 'Indtjekning   Udtjekning\ntirs. 3. nov.   fre. 6. nov.\n\nhttps://www.airbnb.dk/hosting/reservations/details/HMAAAAAAA1' });
+  const s = setup({ messages: [msg], mode: 'all' });
+  assert.equal(s.run().applied, 1);
+  assert.deepEqual(s.guestData.data[1].slice(3, 5), ['2026-11-03', '2026-11-06']);
+  assert.ok(s.gmail.queries.some((q) => q.includes('subject:"Reservationen blev opdateret"')));
+});
+
+test('a change request in the scan window is ignored: no ledger event, no issue, no write', () => {
+  const msg = createMessage({ id: 'r1', subject: 'Reservation change request: HMAAAAAAA1', date: '2026-10-09T09:00:00Z', body: 'Indtjekning   Udtjekning\ntirs. 3. nov.   fre. 6. nov.\n' });
+  const s = setup({ messages: [msg], mode: 'all' });
+  s.run();
+  assert.equal(ledgerRows(s), 0);
+  assert.equal(s.context.openParseIssues_().length, 0);
+  assert.equal(s.guestData.data[1][3], '2026-11-02');
+});
