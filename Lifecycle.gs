@@ -101,10 +101,20 @@ function parseStayDates_(body, emailDay) {
   // Without explicit years: the earliest check-in year whose stay has not ended
   // before the email (one day of timezone grace). Covers bookings made months
   // ahead, stays across New Year, and changes accepted during an ongoing stay.
+  var nightsOf = function (c) { return (dayMs_(c.checkOut) - dayMs_(c.checkIn)) / DAY_MS; };
   var stay = null;
   if (tIn.year) stay = build(tIn.year);
-  else {
-    var candidates = [emailYear - 1, emailYear, emailYear + 1].map(build).filter(Boolean);
+  else if (tOut.year) {
+    // An explicit check-out year anchors check-in: same year, or the year before
+    // when the stay crosses New Year.
+    var sameYear = tIn.month < tOut.month || (tIn.month === tOut.month && tIn.day < tOut.day);
+    stay = build(sameYear ? tOut.year : tOut.year - 1);
+  } else {
+    // Only candidates with a plausible duration compete; then the earliest whose
+    // stay has not ended before the email wins.
+    var all = [emailYear - 1, emailYear, emailYear + 1].map(build).filter(Boolean);
+    var plausible = all.filter(function (c) { return nightsOf(c) > 0 && nightsOf(c) <= MAX_STAY_NIGHTS; });
+    var candidates = plausible.length ? plausible : all; // keep the precise rejection reason below
     stay = candidates.filter(function (c) { return dayMs_(c.checkOut) >= emailMs - DAY_MS; })[0] || candidates[candidates.length - 1] || null;
   }
   if (!stay) return { ok: false, reason: 'dates-invalid' };

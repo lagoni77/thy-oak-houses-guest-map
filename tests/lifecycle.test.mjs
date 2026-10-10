@@ -180,3 +180,31 @@ test('fold: a notice-only accepted change newer than the last dated event marks 
   assert.equal(later.datesUnverifiedSince, null, 'a later dated change resolves it');
   assert.equal(later.checkIn, '2026-07-09');
 });
+
+// ── review round 3: explicit endpoint years anchor inference; duration validated before choosing ──
+test('explicit check-out year anchors the check-in year (Codex fixture 1)', () => {
+  const r = g().parseStayDates_('Indtjekning   Udtjekning\n12. okt.   14. okt. 2026\n', '2026-09-01');
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual([r.checkIn, r.checkOut], ['2026-10-12', '2026-10-14']);
+});
+
+test('explicit check-out year across New Year (Codex fixture 2)', () => {
+  const r = g().parseStayDates_('Indtjekning   Udtjekning\n28. dec.   2. jan. 2027\n', '2026-10-01');
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual([r.checkIn, r.checkOut], ['2026-12-28', '2027-01-02']);
+});
+
+test('explicit check-in year only: check-out inferred from it', () => {
+  const r = g().parseStayDates_('Indtjekning   Udtjekning\n28. dec. 2026   2. jan.\n', '2026-10-01');
+  assert.deepEqual([r.checkIn, r.checkOut], ['2026-12-28', '2027-01-02']);
+});
+
+test('a candidate year with an impossible duration is never chosen over a valid one', () => {
+  // Leap-day check-in only exists in 2028; 2027 candidate is invalid, so 2028 is chosen.
+  const r = g().parseStayDates_('Indtjekning   Udtjekning\n29. feb.   3. mar.\n', '2027-06-01');
+  assert.deepEqual([r.checkIn, r.checkOut], ['2028-02-29', '2028-03-03']);
+});
+
+test('year-less dates with no plausible duration in any year are rejected as implausible, not invalid', () => {
+  assert.equal(g().parseStayDates_('Indtjekning   Udtjekning\ntirs. 7. jul.   søn. 12. dec.\n', '2026-05-01').reason, 'dates-implausible');
+});
