@@ -8,10 +8,12 @@ import { createGas } from './gas-harness.mjs';
 
 const CODE = process.env.GUEST_MAP_CODE_GS;
 const HB = new URL('../Heartbeat.gs', import.meta.url).pathname;
+// The coming-guests patch calls Lifecycle.gs from the sync loop; load it when present.
+const LC = new URL('../Lifecycle.gs', import.meta.url).pathname;
 const skip = CODE ? false : 'set GUEST_MAP_CODE_GS to a patched Code.gs';
 
 function load() {
-  const g = createGas({ files: [CODE, HB] });
+  const g = createGas({ files: [CODE, HB, LC] });
   const set = (name, fn) => { g.context[`__${name}`] = fn; vm.runInContext(`${name} = __${name};`, g.context); };
   set('getSheet', () => ({ getDataRange: () => ({ getValues: () => [['Listing', 'ID', 'Name']] }), getLastRow: () => 1 }));
   set('getExistingEmailIds', () => new Set());

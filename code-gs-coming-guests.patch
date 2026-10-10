@@ -1,0 +1,101 @@
+--- a/Code.js
++++ b/Code.js
+@@ -116,6 +116,7 @@
+   Logger.log(`Found ${threads.length} thread(s)`);
+ 
+   let newRowsCount = 0;
++  const confirmedCodes = [];
+ 
+   threads.forEach(thread => {
+     thread.getMessages().forEach(message => {
+@@ -127,15 +128,25 @@
+         return;
+       }
+ 
+-      const body     = message.getPlainBody();
+-      const htmlBody  = message.getBody(); // needed for the guest profile photo
+-      const subject  = message.getSubject();
+-      const parsed   = parseAirbnbEmail(body, subject, new Date(message.getDate()), htmlBody);
+-
+-      if (!parsed) {
+-        Logger.log(`Could not parse email ${emailId} (Subject: ${subject}) — skipping`);
++      // Coming-guests repair (Lifecycle.gs): a failed read/parse is a recorded,
++      // retryable issue that holds the scan bookmark — never a silent skip.
++      const emailDay = Utilities.formatDate(new Date(message.getDate()), 'Europe/Copenhagen', 'yyyy-MM-dd');
++      let body, htmlBody, subject;
++      try {
++        body     = message.getPlainBody();
++        htmlBody = message.getBody(); // needed for the guest profile photo
++        subject  = message.getSubject();
++      } catch (e) {
++        recordParseIssue_(emailId, 'confirmation', 'read-failed', emailDay);
+         return;
+       }
++      const result = parseAirbnbEmailResult_(body, subject, new Date(message.getDate()), htmlBody, emailDay);
++      if (!result.ok) {
++        Logger.log(`Could not parse email ${emailId}: ${result.reason} — recorded as a parse issue`);
++        recordParseIssue_(emailId, 'confirmation', result.reason, emailDay);
++        return;
++      }
++      const parsed = result.value;
+ 
+       // Geocode only if location is new (saves API quota)
+       const coords = getOrGeocodeLocation(parsed.location, sheet);
+@@ -170,16 +181,31 @@
+ 
+       existingEmailIds.add(emailId);
+       newRowsCount++;
++      resolveParseIssue_(emailId);
++      if (parsed.code) {
++        appendLedgerEvent_({ emailId: emailId, code: parsed.code, kind: 'confirmed', eventAt: new Date(message.getDate()).getTime(),
++                             checkIn: parsed.checkIn, checkOut: parsed.checkOut });
++        confirmedCodes.push(parsed.code);
++      }
+       Logger.log(`Added guest: ${parsed.name} from ${parsed.location}`);
+     });
+   });
+ 
+   // Save today's date (Europe/Copenhagen — same clock Gmail buckets mail by, so
+   // the bookmark and the after: filter agree) so next run is incremental.
++  // The bookmark never passes the oldest open parse issue, so failed emails stay
++  // inside the re-scan window until they parse (Lifecycle.gs heldScanBookmark_).
+   const today = Utilities.formatDate(new Date(), 'Europe/Copenhagen', 'yyyy/MM/dd');
+-  props.setProperty('LAST_SCAN_DATE', today);
++  props.setProperty('LAST_SCAN_DATE', heldScanBookmark_(today, openParseIssues_('confirmation')));
+ 
+-  Logger.log(`Sync complete. Added ${newRowsCount} new guest(s).`);
++  // Cancellations / accepted changes, keyed by reservation code; applied only as
++  // LIFECYCLE_APPLY allows (default off). Re-apply for codes confirmed just now,
++  // so a cancellation seen before its booking still lands.
++  const lifecycle = runLifecycleScan_(sheet);
++  applyLifecycleFor_(sheet, confirmedCodes);
++  setHeartbeatOpenIssues_('bookings', openParseIssues_().length);
++
++  Logger.log(`Sync complete. Added ${newRowsCount} new guest(s). Lifecycle: ${JSON.stringify(lifecycle)}`);
+   return newRowsCount;
+ }
+ 
+@@ -261,12 +287,18 @@
+     // ── DATES ───────────────────────────────────────────────────────────────
+     // Parse Danish Dates specifically
+     // Pattern looks for: "Indtjekning \n\n tirs. 7. jul."
+-    const inMatch  = body.match(/Indtjekning[^\n]*\s*\n+\s*(?:[a-zæøå]+\.?\s*)?(\d{1,2}\.\s*[a-zæøå]+\.?(?:\s*\d{4})?)/i);
+-    const outMatch = body.match(/Udtjekning[^\n]*\s*\n+\s*(?:[a-zæøå]+\.?\s*)?(\d{1,2}\.\s*[a-zæøå]+\.?(?:\s*\d{4})?)/i);
++    // Coming-guests repair: Lifecycle.gs parseStayDates_ handles both the stacked
++    // and the adjacent-column table layout (the old regexes read check-in twice
++    // there) and anchors the year to the email's Copenhagen day.
++    const dkDates = /Indtjekning|Udtjekning/i.test(body)
++      ? parseStayDates_(body, Utilities.formatDate(emailDate, 'Europe/Copenhagen', 'yyyy-MM-dd'))
++      : null;
+ 
+-    if (inMatch && outMatch) {
+-      checkInDate  = parseDanishDate(inMatch[1], emailDate);
+-      checkOutDate = parseDanishDate(outMatch[1], emailDate);
++    if (dkDates) {
++      if (dkDates.ok) {
++        checkInDate  = new Date(dkDates.checkIn + 'T00:00:00Z');
++        checkOutDate = new Date(dkDates.checkOut + 'T00:00:00Z');
++      }
+     } else {
+       // Fallback to English date parsing
+       const datePattern = /(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}|\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}|\b\d{4}-\d{2}-\d{2})/gi;

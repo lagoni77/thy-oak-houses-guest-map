@@ -497,3 +497,25 @@ function stayDateRepair_(apply) {
   Logger.log((apply ? 'repairStayDatesConfirmed ' : 'auditStayDates ') + JSON.stringify(out));
   return out;
 }
+
+// ── confirmation parsing with an observable outcome ──────────────────────────
+/**
+ * Wraps Code.gs parseAirbnbEmail: Danish stay dates come from parseStayDates_
+ * (adjacent-column safe), stated nights must agree, and every failure has a
+ * reason the caller records as a parse issue instead of silently skipping.
+ */
+function parseAirbnbEmailResult_(body, subject, emailDate, htmlBody, emailDay) {
+  var danish = /Indtjekning|Udtjekning/i.test(String(body || ''));
+  var dates = danish ? parseStayDates_(body, emailDay) : null;
+  if (dates && !dates.ok) return { ok: false, reason: dates.reason };
+  var parsed;
+  try { parsed = parseAirbnbEmail(body, subject, emailDate, htmlBody); } catch (e) { return { ok: false, reason: 'parse-error' }; }
+  if (!parsed) return { ok: false, reason: 'parse-failed' };
+  if (dates) { parsed.checkIn = dates.checkIn; parsed.checkOut = dates.checkOut; }
+  var stated = (String(body || '').match(/(\d+)\s+(?:nætter|nights)/i) || [])[1];
+  var v = validateStay_(parsed, stated != null ? Number(stated) : null);
+  if (!v.ok) return { ok: false, reason: v.reason };
+  parsed.nights = v.nights;
+  parsed.code = reservationCodeFrom_(parsed.bookingUrl) || reservationCodeFrom_(htmlBody) || reservationCodeFrom_(body);
+  return { ok: true, value: parsed };
+}
