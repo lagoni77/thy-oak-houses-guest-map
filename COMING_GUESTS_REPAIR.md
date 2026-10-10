@@ -14,7 +14,7 @@ source_ref:
 ---
 # Coming-guests repair — rollout and existing-data repair (STAGED, NOT DEPLOYED)
 
-Status 2026-10-10 (review round 3): built and tested locally. **No GAS push, no Sheet change, no Airbnb change, no notification.**
+Status 2026-10-10 (review round 4): built and tested locally. **No GAS push, no Sheet change, no Airbnb change, no notification.**
 Every step below that touches production needs Brian's explicit approval at that step.
 
 ## What changes
@@ -63,7 +63,8 @@ The accepted-change notice may carry only a reservation-detail link and no dates
 2. **LeonidOS:** before applying the arrival cutoff, each flagged row is looked up by reservation code in Airbnb's own iCal.
    - **Found:** iCal dates are used, labelled `DatesSource: airbnb-calendar`.
    - **Not found, or the calendar is unavailable:** the row keeps its dates with `DatesUnverified`, shown on the phone and dashboard as "datoer ændret — ikke bekræftet".
-   - **Calendar down after an earlier successful check:** the earlier calendar dates are kept (`DatesStale`, with the original retrieval time in `DatesVerifiedAt`) instead of falling back to the obsolete Sheet dates.
+   - **Calendar down after an earlier successful check:** the earlier calendar dates are kept (`DatesStale`, with the original retrieval time in `DatesVerifiedAt`) instead of falling back to the obsolete Sheet dates — but **only if that check was retrieved after the newest accepted-change notice** (`DatesUnverifiedSince`). Evidence from before a newer change, or with a missing or invalid timestamp on either side, takes the unknown-dates path.
+   - **What counts as a calendar read:** a complete iCalendar — closed `VCALENDAR` envelope, balanced events, valid dates on every event. An HTTP 200 HTML page, or an empty or truncated body, is an `invalid-calendar` house failure: outage warning, earlier evidence kept. A complete calendar with no events is a valid read. Live feeds were checked against this rule read-only on 2026-10-10: both houses pass.
    - **Calendar down with no earlier evidence:** the row stays listed as unverified even when its obsolete Sheet dates have passed the arrival cutoff.
    - **House feed read but the code is absent:** the reservation is not current or future in Airbnb (past, or cancelled ahead of the Sheet). Earlier evidence is dropped and the normal cutoff applies.
    - Calendar evidence lives in node memory; a restart starts without it.
