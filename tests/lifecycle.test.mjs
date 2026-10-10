@@ -94,7 +94,7 @@ const permutations = (xs) => xs.length <= 1 ? [xs] : xs.flatMap((x, i) => permut
 const plain = (o) => JSON.parse(JSON.stringify(o));
 
 test('fold: confirmed then accepted changes → latest change wins, in any processing order', () => {
-  const expected = { status: 'confirmed', checkIn: '2026-07-09', checkOut: '2026-07-14', datesFrom: 'm3', eventCount: 3 };
+  const expected = { status: 'confirmed', checkIn: '2026-07-09', checkOut: '2026-07-14', datesFrom: 'm3', datesUnverifiedSince: null, eventCount: 3 };
   for (const order of permutations([confirm, change, change2])) assert.deepEqual(plain(g().foldReservationEvents_(order)), expected);
 });
 
@@ -119,7 +119,7 @@ test('fold: a change seen before its confirmation still wins over the older conf
 });
 
 test('fold: cancellation with no known dates keeps dates unknown', () => {
-  assert.deepEqual(plain(g().foldReservationEvents_([cancel])), { status: 'cancelled', checkIn: null, checkOut: null, datesFrom: null, eventCount: 1 });
+  assert.deepEqual(plain(g().foldReservationEvents_([cancel])), { status: 'cancelled', checkIn: null, checkOut: null, datesFrom: null, datesUnverifiedSince: null, eventCount: 1 });
 });
 
 // ── bookmark held by open parse issues ──
@@ -140,4 +140,43 @@ test('change REQUESTS never classify as accepted changes', () => {
   for (const subject of ['Anmodning om ændring af reservation', 'Ændringsanmodning for reservation HMABC12345', 'Reservation change request: HMABC12345', 'Request to change reservation HMABC12345']) {
     assert.equal(g().classifyAirbnbSubject_(subject).kind, 'other', subject);
   }
+});
+
+// ── review round 2: calendar validity and year inference for changes during a stay ──
+test('impossible calendar dates are rejected, never rolled into the next month', () => {
+  assert.equal(g().parseStayDates_('Indtjekning   Udtjekning\nman. 31. feb.   tirs. 3. mar.\n', '2026-01-10').reason, 'dates-invalid');
+  assert.equal(g().parseStayDates_('Indtjekning   Udtjekning\nman. 30. sep.   tirs. 31. sep.\n', '2026-01-10').reason, 'dates-invalid');
+  assert.equal(g().parseStayDates_('Indtjekning   Udtjekning\nman. 29. feb. 2028   tirs. 2. mar. 2028\n', '2026-01-10').ok, true, 'leap day exists');
+});
+
+test('a change accepted during the stay keeps the current year (check-in already passed)', () => {
+  const r = g().parseStayDates_('Indtjekning   Udtjekning\nman. 5. okt.   søn. 11. okt.\n', '2026-10-08');
+  assert.deepEqual([r.checkIn, r.checkOut], ['2026-10-05', '2026-10-11']);
+});
+
+test('a change accepted on New Year\'s Day for a stay that began in December keeps the December year', () => {
+  const r = g().parseStayDates_('Indtjekning   Udtjekning\nman. 28. dec.   lør. 3. jan.\n', '2027-01-01');
+  assert.deepEqual([r.checkIn, r.checkOut], ['2026-12-28', '2027-01-03']);
+});
+
+test('a stay that ended before the email is never re-dated into next year by accident when it fits this year', () => {
+  // Booking made 9 Oct for 10 Aug next year still rolls forward (check-out in the past this year).
+  const r = g().parseStayDates_('Indtjekning   Udtjekning\ntirs. 10. aug.   fre. 13. aug.\n', '2026-10-09');
+  assert.equal(r.checkIn, '2027-08-10');
+});
+
+test('notice-only accepted change subject + representative body without a date block', () => {
+  const c = g();
+  assert.equal(c.hasStayDateBlock_('Reservationen blev opdateret\n\nÆndringen af reservationen er accepteret.\n\nSe reservation\nhttps://www.airbnb.dk/hosting/reservations/details/HMAAAAAAA1'), false);
+  assert.equal(c.hasStayDateBlock_('Indtjekning   Udtjekning\ntirs. 3. nov.   fre. 6. nov.'), true);
+});
+
+test('fold: a notice-only accepted change newer than the last dated event marks dates unverified, never invents dates', () => {
+  const notice = ev('n1', 'changed', '2026-05-15T10:00:00Z');
+  const s = plain(g().foldReservationEvents_([confirm, notice]));
+  assert.equal(s.checkIn, '2026-07-07', 'last known dates are kept, labelled unverified');
+  assert.equal(s.datesUnverifiedSince, '2026-05-15T10:00:00.000Z');
+  const later = plain(g().foldReservationEvents_([confirm, notice, change2]));
+  assert.equal(later.datesUnverifiedSince, null, 'a later dated change resolves it');
+  assert.equal(later.checkIn, '2026-07-09');
 });

@@ -22,10 +22,12 @@ export function createSheet(name, rows = []) {
     getLastRow: () => data.length,
     getLastColumn: () => width(),
     getDataRange: () => ({ getValues: () => data.map((r) => { const out = [...r]; while (out.length < width()) out.push(''); return out; }) }),
-    appendRow: (row) => { data.push([...row]); sheet.writes += 1; },
+    // Failure injection: tests may set sheet.failAppend(row) / sheet.failSetValue(r, c, v) to throw.
+    failAppend: null, failSetValue: null,
+    appendRow: (row) => { if (sheet.failAppend && sheet.failAppend(row)) throw new Error('injected appendRow failure'); data.push([...row]); sheet.writes += 1; },
     getRange: (r, c, nr = 1, nc = 1) => ({
       getValue: () => (data[r - 1] || [])[c - 1] ?? '',
-      setValue: (v) => { while (data.length < r) data.push([]); data[r - 1][c - 1] = v; sheet.writes += 1; },
+      setValue: (v) => { if (sheet.failSetValue && sheet.failSetValue(r, c, v)) throw new Error('injected setValue failure'); while (data.length < r) data.push([]); data[r - 1][c - 1] = v; sheet.writes += 1; },
       setValues: (vals) => { for (let i = 0; i < nr; i++) { while (data.length < r + i) data.push([]); for (let j = 0; j < nc; j++) data[r - 1 + i][c - 1 + j] = vals[i][j]; } sheet.writes += 1; },
     }),
     setFrozenRows() {},

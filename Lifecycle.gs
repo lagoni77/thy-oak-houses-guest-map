@@ -24,6 +24,11 @@ var DK_DATE_RE = /(\d{1,2})\.\s*(jan|feb|mar|apr|maj|jun|jul|aug|sep|okt|nov|dec
 var MAX_STAY_NIGHTS = 60;
 var DAY_MS = 86400000;
 
+function validDay_(y, m, d) {
+  var t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
+function hasStayDateBlock_(body) { return /Indtjekning/i.test(String(body || '')) && /Udtjekning/i.test(String(body || '')); }
 function ymd_(y, m, d) { return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
 function dayMs_(s) { return Date.parse(s + 'T00:00:00Z'); }
 
@@ -85,15 +90,26 @@ function parseStayDates_(body, emailDay) {
   var emailMs = dayMs_(emailDay);
   if (!Number.isFinite(emailMs)) return { ok: false, reason: 'email-date-unknown' };
 
-  // Check-in: the email year unless that puts it more than a day before the email.
-  var inYear = tIn.year || emailYear;
-  if (!tIn.year && dayMs_(ymd_(inYear, tIn.month, tIn.day)) < emailMs - DAY_MS) inYear += 1;
-  var checkIn = ymd_(inYear, tIn.month, tIn.day);
-
-  // Check-out: the check-in year unless that is not after check-in (stay across New Year).
-  var outYear = tOut.year || inYear;
-  if (!tOut.year && dayMs_(ymd_(outYear, tOut.month, tOut.day)) <= dayMs_(checkIn)) outYear += 1;
-  var checkOut = ymd_(outYear, tOut.month, tOut.day);
+  // A stay for a given check-in year; check-out rolls over New Year when needed.
+  var build = function (inYear) {
+    if (!validDay_(inYear, tIn.month, tIn.day)) return null;
+    var outYear = tOut.year || inYear;
+    if (!tOut.year && validDay_(outYear, tOut.month, tOut.day) && dayMs_(ymd_(outYear, tOut.month, tOut.day)) <= dayMs_(ymd_(inYear, tIn.month, tIn.day))) outYear += 1;
+    if (!validDay_(outYear, tOut.month, tOut.day)) return null;
+    return { checkIn: ymd_(inYear, tIn.month, tIn.day), checkOut: ymd_(outYear, tOut.month, tOut.day) };
+  };
+  // Without explicit years: the earliest check-in year whose stay has not ended
+  // before the email (one day of timezone grace). Covers bookings made months
+  // ahead, stays across New Year, and changes accepted during an ongoing stay.
+  var stay = null;
+  if (tIn.year) stay = build(tIn.year);
+  else {
+    var candidates = [emailYear - 1, emailYear, emailYear + 1].map(build).filter(Boolean);
+    stay = candidates.filter(function (c) { return dayMs_(c.checkOut) >= emailMs - DAY_MS; })[0] || candidates[candidates.length - 1] || null;
+  }
+  if (!stay) return { ok: false, reason: 'dates-invalid' };
+  var checkIn = stay.checkIn;
+  var checkOut = stay.checkOut;
 
   var nights = (dayMs_(checkOut) - dayMs_(checkIn)) / DAY_MS;
   if (!Number.isFinite(nights)) return { ok: false, reason: 'dates-missing' };
@@ -161,13 +177,18 @@ function foldReservationEvents_(events) {
   var list = Object.keys(byId).map(function (k) { return byId[k]; }).sort(function (a, b) {
     return (a.eventAt - b.eventAt) || (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]) || (a.emailId < b.emailId ? -1 : a.emailId > b.emailId ? 1 : 0);
   });
-  var state = { status: 'confirmed', checkIn: null, checkOut: null, datesFrom: null, eventCount: list.length };
+  var state = { status: 'confirmed', checkIn: null, checkOut: null, datesFrom: null, datesUnverifiedSince: null, eventCount: list.length };
   list.forEach(function (e) {
     if (e.kind === 'cancelled') state.status = 'cancelled';
     if ((e.kind === 'confirmed' || e.kind === 'changed') && e.checkIn && e.checkOut) {
       state.checkIn = e.checkIn;
       state.checkOut = e.checkOut;
       state.datesFrom = e.emailId;
+      state.datesUnverifiedSince = null;
+    } else if (e.kind === 'changed') {
+      // Accepted change whose notice carries no dates: keep the last known dates,
+      // labelled unverified. Never infer dates from their absence.
+      state.datesUnverifiedSince = new Date(e.eventAt).toISOString();
     }
   });
   if (!list.some(function (e) { return e.kind === 'confirmed' || e.kind === 'changed'; }) && state.status !== 'cancelled') {
@@ -303,27 +324,131 @@ function lifecycleMode_() {
   return LIFECYCLE_MODES[mode] ? mode : 'off';
 }
 
-// ── apply folded state to GuestData (idempotent; never deletes) ──────────────
-function guestColumns_(headers) {
+// ── header lookup (shared) ───────────────────────────────────────────────────
+function headerKey_(h) { return String(h || '').toLowerCase().replace(/[^a-z]/g, ''); }
+function headerIndex_(headers) {
   var idx = {};
-  headers.forEach(function (h, i) { idx[String(h || '').toLowerCase().replace(/[^a-z]/g, '')] = i + 1; });
-  return { checkIn: idx.checkin, checkOut: idx.checkout, nights: idx.nights, status: idx.status, bookingUrl: idx.bookingurl };
+  (headers || []).forEach(function (h, i) { var k = headerKey_(h); if (k && !idx[k]) idx[k] = i + 1; });
+  return idx;
 }
+function guestColumns_(headers) {
+  var idx = headerIndex_(headers);
+  return { checkIn: idx.checkin, checkOut: idx.checkout, nights: idx.nights, status: idx.status,
+           bookingUrl: idx.bookingurl, emailId: idx.emailid, unverified: idx.datesunverifiedsince };
+}
+function ensureGuestColumn_(sheet, name) {
+  var headers = sheet.getDataRange().getValues()[0] || [];
+  var col = headerIndex_(headers)[headerKey_(name)];
+  if (col) return col;
+  col = headers.length + 1;
+  sheet.getRange(1, col).setValue(name);
+  return col;
+}
+function guestSheet_() { return SpreadsheetApp.getActiveSpreadsheet().getSheetByName('GuestData'); }
 
 function isCancelledStatus_(v) { return /(cancelled|canceled|aflyst|annuller|annuler|afbestilt)/i.test(String(v || '')); }
 
-var LIFECYCLE_LOG_HEADERS = ['At', 'Row', 'Code', 'Field', 'Old', 'New'];
+// ── write-ahead logs (LifecycleLog, RepairLog) ───────────────────────────────
+// Each GuestData mutation first appends its complete before-image as 'pending',
+// then writes the cell, then marks 'applied'. If the log append fails, nothing
+// is mutated; if the cell write fails, the entry becomes 'failed'; an entry left
+// 'pending' by an interrupted run is resolved by reconcileWriteLog_ from the
+// cell's actual value. Rollback writes Old back only where the cell still holds
+// New, so human edits are never overwritten.
+var WRITE_LOG_HEADERS = ['At', 'Row', 'Code', 'Field', 'Old', 'New', 'State'];
+var FIELD_KEYS = { Status: 'status', CheckIn: 'checkin', CheckOut: 'checkout', Nights: 'nights', DatesUnverifiedSince: 'datesunverifiedsince' };
 
+function comparable_(field, v) {
+  if (field === 'CheckIn' || field === 'CheckOut') return cellDay_(v);
+  return v == null ? '' : String(v);
+}
+function beforeImage_(field, v) {
+  if (field === 'CheckIn' || field === 'CheckOut') return cellDay_(v);
+  return v == null ? '' : v;
+}
+
+function loggedWrite_(logName, sheet, rowNo, col, field, code, oldVal, newVal) {
+  var log = lcSheet_(logName, WRITE_LOG_HEADERS);
+  log.appendRow([new Date().toISOString(), rowNo, code || '', field, beforeImage_(field, oldVal), newVal, 'pending']);
+  var logRow = log.getLastRow();
+  try {
+    sheet.getRange(rowNo, col).setValue(newVal);
+  } catch (e) {
+    try { log.getRange(logRow, 7).setValue('failed'); } catch (_) { /* reconcile resolves it */ }
+    throw e;
+  }
+  log.getRange(logRow, 7).setValue('applied');
+}
+
+function writeLogEntries_(logName) {
+  var log = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(logName);
+  if (!log) return [];
+  var values = log.getDataRange().getValues();
+  var out = [];
+  for (var i = 1; i < values.length; i++) {
+    var r = values[i];
+    out.push({ logRow: i + 1, at: String(r[0]), row: Number(r[1]), code: r[2], field: r[3], old: r[4], next: r[5], state: r[6] });
+  }
+  return out;
+}
+
+function currentCell_(sheet, e) {
+  var col = headerIndex_(sheet.getDataRange().getValues()[0] || [])[FIELD_KEYS[e.field]];
+  return col ? { col: col, value: comparable_(e.field, sheet.getRange(e.row, col).getValue()) } : null;
+}
+
+function reconcileWriteLog_(logName, sheet) {
+  var log = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(logName);
+  var resolved = 0;
+  writeLogEntries_(logName).forEach(function (e) {
+    if (e.state !== 'pending' && e.state !== 'rolling-back') return;
+    var cur = currentCell_(sheet, e);
+    var value = cur ? cur.value : null;
+    var oldC = comparable_(e.field, e.old);
+    var newC = comparable_(e.field, e.next);
+    var next = e.state === 'pending'
+      ? (value === newC ? 'applied' : value === oldC ? 'not-applied' : 'conflict')
+      : (value === oldC ? 'rolled-back' : value === newC ? 'applied' : 'rollback-conflict');
+    log.getRange(e.logRow, 7).setValue(next);
+    resolved++;
+  });
+  return resolved;
+}
+
+function rollbackWrites_(logName, sheet, sinceIso) {
+  reconcileWriteLog_(logName, sheet);
+  var log = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(logName);
+  var out = { rolledBack: 0, conflicts: 0 };
+  writeLogEntries_(logName).filter(function (e) { return e.state === 'applied' && e.at >= String(sinceIso); })
+    .reverse()
+    .forEach(function (e) {
+      var cur = currentCell_(sheet, e);
+      if (!cur || cur.value !== comparable_(e.field, e.next)) {
+        log.getRange(e.logRow, 7).setValue('rollback-conflict');
+        out.conflicts++;
+        return;
+      }
+      log.getRange(e.logRow, 7).setValue('rolling-back');
+      sheet.getRange(e.row, cur.col).setValue(e.old);
+      log.getRange(e.logRow, 7).setValue('rolled-back');
+      out.rolledBack++;
+    });
+  Logger.log('rollback ' + logName + ' ' + JSON.stringify(out));
+  return out;
+}
+
+/** Manual (editor). Requires LIFECYCLE_APPLY=off so the next run does not re-apply. */
+function rollbackLifecycleChanges(sinceIso) {
+  if (lifecycleMode_() !== 'off') throw new Error('Set LIFECYCLE_APPLY=off before rolling back lifecycle changes.');
+  return rollbackWrites_('LifecycleLog', guestSheet_(), sinceIso);
+}
+/** Manual (editor). Restores stay dates changed by repairStayDatesConfirmed since sinceIso. */
+function rollbackStayDateRepairs(sinceIso) {
+  return rollbackWrites_('RepairLog', guestSheet_(), sinceIso);
+}
+
+// ── apply folded state to GuestData (idempotent; never deletes) ──────────────
 function applyReservationState_(sheet, values, cols, code, state, events, mode, dryRun) {
-  var fieldName = function (c) { return c === cols.status ? 'Status' : c === cols.checkIn ? 'CheckIn' : c === cols.checkOut ? 'CheckOut' : 'Nights'; };
-  // Every applied write is logged with its old value (rollback: write Old back).
-  var write = function (r, c, v) {
-    if (dryRun) return;
-    var old = values[r - 1][c - 1];
-    sheet.getRange(r, c).setValue(v);
-    lcSheet_('LifecycleLog', LIFECYCLE_LOG_HEADERS).appendRow([new Date().toISOString(), r, code, fieldName(c),
-      c === cols.checkIn || c === cols.checkOut ? cellDay_(old) : (old == null ? '' : old), v]);
-  };
   if (mode === 'off') return 'disabled';
   if (!cols.bookingUrl) return 'row-not-found';
   var rowNo = -1;
@@ -333,24 +458,34 @@ function applyReservationState_(sheet, values, cols, code, state, events, mode, 
   if (rowNo < 0) return 'row-not-found';
   var row = values[rowNo - 1];
   var wrote = false;
+  var set = function (field, col, newVal) {
+    var oldVal = col ? row[col - 1] : '';
+    if (comparable_(field, oldVal) === comparable_(field, newVal)) return;
+    wrote = true;
+    if (dryRun) return;
+    loggedWrite_('LifecycleLog', sheet, rowNo, col || ensureGuestColumn_(sheet, field), field, code, oldVal, newVal);
+  };
 
   if (state.status === 'cancelled') {
     if (!cols.status) return 'no-status-column';
-    if (!isCancelledStatus_(row[cols.status - 1])) { write(rowNo, cols.status, 'Cancelled'); wrote = true; }
+    if (!isCancelledStatus_(row[cols.status - 1])) set('Status', cols.status, 'Cancelled');
     return wrote ? 'applied' : 'unchanged';
   }
 
-  var datesEvent = events.filter(function (e) { return e.emailId === state.datesFrom; })[0];
-  if (mode === 'all' && datesEvent && datesEvent.kind === 'changed' && state.checkIn && state.checkOut) {
-    if (cellDay_(row[cols.checkIn - 1]) !== state.checkIn) { write(rowNo, cols.checkIn, state.checkIn); wrote = true; }
-    if (cellDay_(row[cols.checkOut - 1]) !== state.checkOut) { write(rowNo, cols.checkOut, state.checkOut); wrote = true; }
-    var nights = (dayMs_(state.checkOut) - dayMs_(state.checkIn)) / DAY_MS;
-    if (cols.nights && Number(row[cols.nights - 1]) !== nights) { write(rowNo, cols.nights, nights); wrote = true; }
+  if (mode === 'all') {
+    var datesEvent = events.filter(function (e) { return e.emailId === state.datesFrom; })[0];
+    if (datesEvent && datesEvent.kind === 'changed' && state.checkIn && state.checkOut) {
+      set('CheckIn', cols.checkIn, state.checkIn);
+      set('CheckOut', cols.checkOut, state.checkOut);
+      if (cols.nights) set('Nights', cols.nights, (dayMs_(state.checkOut) - dayMs_(state.checkIn)) / DAY_MS);
+    }
+    // Notice-only accepted change: the dates shown are the last known ones, unverified.
+    set('DatesUnverifiedSince', cols.unverified, state.datesUnverifiedSince || '');
   }
   return wrote ? 'applied' : 'unchanged';
 }
 
-/** Re-folds the ledger for each code and applies it. Safe to call repeatedly. */
+/** Folds the ledger for each code and applies it. Idempotent; safe every run. */
 function applyLifecycleFor_(sheet, codes, mode, dryRun) {
   mode = mode || lifecycleMode_();
   var ledger = ledgerRows_();
@@ -364,8 +499,10 @@ function applyLifecycleFor_(sheet, codes, mode, dryRun) {
     if (!events.length) return;
     var state = foldReservationEvents_(events);
     var outcome = applyReservationState_(sheet, values, cols, code, state, events, mode, dryRun);
-    if (outcome === 'applied') { summary.applied++; if (!dryRun) values = sheet.getDataRange().getValues(); }
-    else if (outcome === 'unchanged') summary.unchanged++;
+    if (outcome === 'applied') {
+      summary.applied++;
+      if (!dryRun) { values = sheet.getDataRange().getValues(); cols = guestColumns_(values[0] || []); }
+    } else if (outcome === 'unchanged') summary.unchanged++;
     else if (outcome === 'row-not-found') summary.rowNotFound++;
     var needsChange = events.some(function (e) { return e.kind === 'changed'; }) && state.status !== 'cancelled';
     if (outcome === 'disabled' || (needsChange && mode === 'cancellations')) summary.pending++;
@@ -373,12 +510,28 @@ function applyLifecycleFor_(sheet, codes, mode, dryRun) {
   return summary;
 }
 
+function ledgerCodes_() {
+  var seen = {};
+  return ledgerRows_().map(function (e) { return e.code; }).filter(function (c) { if (!c || seen[c]) return false; seen[c] = true; return true; });
+}
+
+/** Manual (editor): reconcile interrupted writes, then apply the whole ledger under the current mode. */
+function applyLifecycleNow() {
+  var sheet = guestSheet_();
+  reconcileWriteLog_('LifecycleLog', sheet);
+  var r = applyLifecycleFor_(sheet, ledgerCodes_(), lifecycleMode_());
+  Logger.log('applyLifecycleNow ' + JSON.stringify(r));
+  return r;
+}
+
 /**
- * Scans cancellation / change emails since the lifecycle bookmark, ledgers each
- * readable event once, records unreadable ones as issues (holding the bookmark),
- * then applies the folded state per the LIFECYCLE_APPLY mode (default off).
+ * Scans cancellation / accepted-change emails since the lifecycle bookmark,
+ * ledgers each readable event once, records unreadable ones as issues (holding
+ * the bookmark), then reconciles the WHOLE ledger under LIFECYCLE_APPLY — so
+ * events ledgered while the mode was off are applied once it is switched on.
  */
 function runLifecycleScan_(sheet) {
+  reconcileWriteLog_('LifecycleLog', sheet);
   var props = PropertiesService.getScriptProperties();
   var mode = lifecycleMode_();
   var last = props.getProperty('LAST_LIFECYCLE_SCAN_DATE');
@@ -386,8 +539,8 @@ function runLifecycleScan_(sheet) {
   var threads = GmailApp.search(LIFECYCLE_QUERY + ' after:' + start);
   var known = {};
   ledgerRows_().forEach(function (e) { known[e.emailId] = true; });
-  var touched = [];
   var issues = 0;
+  var events = 0;
 
   threads.forEach(function (thread) {
     thread.getMessages().forEach(function (message) {
@@ -401,28 +554,34 @@ function runLifecycleScan_(sheet) {
       var code = cls.code || reservationCodeFrom_(body);
       if (!code) { recordParseIssue_(id, 'lifecycle', 'code-missing', day); issues++; return; }
       var event = { emailId: id, code: code, kind: cls.kind, eventAt: message.getDate().getTime() };
-      if (cls.kind === 'changed') {
+      if (cls.kind === 'changed' && hasStayDateBlock_(body)) {
         var dates = parseStayDates_(body, day);
+        if (dates.ok) {
+          var stated = (String(body).match(/(\d+)\s+(?:nætter|nights)/i) || [])[1];
+          var v = validateStay_(dates, stated != null ? Number(stated) : null);
+          if (!v.ok) dates = { ok: false, reason: v.reason };
+        }
         if (!dates.ok) { recordParseIssue_(id, 'lifecycle', dates.reason, day); issues++; return; }
         event.checkIn = dates.checkIn;
         event.checkOut = dates.checkOut;
       }
+      // A change without a date block is a notice-only accepted change: ledgered
+      // without dates; the fold marks the reservation's dates unverified.
       appendLedgerEvent_(event);
       known[id] = true;
       resolveParseIssue_(id);
-      touched.push(code);
+      events++;
     });
   });
 
   var today = Utilities.formatDate(new Date(), 'Europe/Copenhagen', 'yyyy/MM/dd');
   props.setProperty('LAST_LIFECYCLE_SCAN_DATE', heldScanBookmark_(today, openParseIssues_('lifecycle')));
-  var summary = applyLifecycleFor_(sheet, touched, mode);
+  var summary = applyLifecycleFor_(sheet, ledgerCodes_(), mode);
   summary.mode = mode;
   summary.issues = issues;
-  summary.events = touched.length;
+  summary.events = events;
   return summary;
 }
-
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Rollout tools — run manually from the editor. Logs carry counts, row numbers and
@@ -433,7 +592,7 @@ function runLifecycleScan_(sheet) {
 function previewLifecycle(mode) {
   mode = LIFECYCLE_MODES[mode] ? mode : 'cancellations';
   var codes = ledgerRows_().map(function (e) { return e.code; });
-  var r = applyLifecycleFor_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName('GuestData'), codes, mode, true);
+  var r = applyLifecycleFor_(guestSheet_(), codes, mode, true);
   var out = { mode: mode, wouldApply: r.applied, unchanged: r.unchanged, rowNotFound: r.rowNotFound, pending: r.pending };
   Logger.log('previewLifecycle ' + JSON.stringify(out));
   return out;
@@ -476,32 +635,36 @@ function searchAllLc_(query) {
   return out;
 }
 
-var REPAIR_HEADERS = ['At', 'Row', 'Code', 'OldCheckIn', 'OldCheckOut', 'OldNights', 'NewCheckIn', 'NewCheckOut', 'NewNights'];
-
 /** Dry run: re-parse each GuestData row's own confirmation email with the fixed parser. */
 function auditStayDates() { return stayDateRepair_(false); }
-/** Applies auditStayDates' candidates; every change is logged to RepairLog for rollback. */
+/** Applies auditStayDates' candidates; each field is logged to RepairLog before it changes. */
 function repairStayDatesConfirmed() { return stayDateRepair_(true); }
 
+function existingLedgerRows_() {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LEDGER_SHEET) ? ledgerRows_() : [];
+}
+
 function stayDateRepair_(apply) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('GuestData');
+  var sheet = guestSheet_();
+  if (apply) reconcileWriteLog_('RepairLog', sheet);
   var values = sheet.getDataRange().getValues();
-  var headers = values[0] || [];
-  var cols = guestColumns_(headers);
-  var idx = {};
-  headers.forEach(function (h, i) { idx[String(h || '').toLowerCase().replace(/[^a-z]/g, '')] = i + 1; });
-  var emailCol = idx.emailid;
-  var out = { unchanged: 0, wouldFix: 0, fixed: 0, emailMissing: 0, notDanish: 0, unparseable: {}, candidates: [] };
-  var log = apply ? lcSheet_('RepairLog', REPAIR_HEADERS) : null;
+  var cols = guestColumns_(values[0] || []);
+  // Rows whose reservation has an accepted change belong to the lifecycle: the
+  // original confirmation is no longer the evidence for their dates.
+  var lifecycleCodes = {};
+  existingLedgerRows_().forEach(function (e) { if (e.kind === 'changed') lifecycleCodes[e.code] = true; });
+  var out = { unchanged: 0, wouldFix: 0, fixed: 0, lifecycleOwned: 0, emailMissing: 0, notDanish: 0, unparseable: {}, candidates: [] };
 
   for (var r = 1; r < values.length; r++) {
     var row = values[r];
-    var emailId = emailCol ? String(row[emailCol - 1] || '') : '';
+    var emailId = cols.emailId ? String(row[cols.emailId - 1] || '') : '';
     if (!emailId) continue;
+    var code = cols.bookingUrl ? reservationCodeFrom_(row[cols.bookingUrl - 1]) : null;
+    if (code && lifecycleCodes[code]) { out.lifecycleOwned++; continue; }
     var message = GmailApp.getMessageById(emailId);
     if (!message) { out.emailMissing++; continue; }
     var body = message.getPlainBody();
-    if (!/Indtjekning|Udtjekning/i.test(body)) { out.notDanish++; continue; }
+    if (!hasStayDateBlock_(body)) { out.notDanish++; continue; }
     var dates = parseStayDates_(body, messageDay_(message));
     if (dates.ok) {
       var stated = (String(body).match(/(\d+)\s+(?:nætter|nights)/i) || [])[1];
@@ -516,16 +679,14 @@ function stayDateRepair_(apply) {
     var newNights = (dayMs_(dates.checkOut) - dayMs_(dates.checkIn)) / DAY_MS;
     if (oldIn === dates.checkIn && oldOut === dates.checkOut && Number(oldNights) === newNights) { out.unchanged++; continue; }
 
-    var code = cols.bookingUrl ? reservationCodeFrom_(row[cols.bookingUrl - 1]) : null;
     var kind = oldIn && oldIn === oldOut ? 'checkout-equals-checkin'
       : (oldIn.slice(5) === dates.checkIn.slice(5) && oldIn.slice(0, 4) !== dates.checkIn.slice(0, 4)) ? 'year' : 'other';
     out.candidates.push({ row: r + 1, code: code, kind: kind });
     out.wouldFix++;
     if (apply) {
-      sheet.getRange(r + 1, cols.checkIn).setValue(dates.checkIn);
-      sheet.getRange(r + 1, cols.checkOut).setValue(dates.checkOut);
-      if (cols.nights) sheet.getRange(r + 1, cols.nights).setValue(newNights);
-      log.appendRow([new Date().toISOString(), r + 1, code || '', oldIn, oldOut, oldNights, dates.checkIn, dates.checkOut, newNights]);
+      if (oldIn !== dates.checkIn) loggedWrite_('RepairLog', sheet, r + 1, cols.checkIn, 'CheckIn', code, oldIn, dates.checkIn);
+      if (oldOut !== dates.checkOut) loggedWrite_('RepairLog', sheet, r + 1, cols.checkOut, 'CheckOut', code, oldOut, dates.checkOut);
+      if (cols.nights && Number(oldNights) !== newNights) loggedWrite_('RepairLog', sheet, r + 1, cols.nights, 'Nights', code, oldNights, newNights);
       out.fixed++;
     }
   }

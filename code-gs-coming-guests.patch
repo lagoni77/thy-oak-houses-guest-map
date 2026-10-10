@@ -1,14 +1,6 @@
 --- a/Code.js
 +++ b/Code.js
-@@ -116,6 +116,7 @@
-   Logger.log(`Found ${threads.length} thread(s)`);
- 
-   let newRowsCount = 0;
-+  const confirmedCodes = [];
- 
-   threads.forEach(thread => {
-     thread.getMessages().forEach(message => {
-@@ -127,15 +128,28 @@
+@@ -127,15 +127,28 @@
          return;
        }
  
@@ -43,7 +35,7 @@
  
        // Geocode only if location is new (saves API quota)
        const coords = getOrGeocodeLocation(parsed.location, sheet);
-@@ -170,16 +184,31 @@
+@@ -170,16 +183,29 @@
  
        existingEmailIds.add(emailId);
        newRowsCount++;
@@ -51,7 +43,6 @@
 +      if (parsed.code) {
 +        appendLedgerEvent_({ emailId: emailId, code: parsed.code, kind: 'confirmed', eventAt: new Date(message.getDate()).getTime(),
 +                             checkIn: parsed.checkIn, checkOut: parsed.checkOut });
-+        confirmedCodes.push(parsed.code);
 +      }
        Logger.log(`Added guest: ${parsed.name} from ${parsed.location}`);
      });
@@ -67,17 +58,16 @@
  
 -  Logger.log(`Sync complete. Added ${newRowsCount} new guest(s).`);
 +  // Cancellations / accepted changes, keyed by reservation code; applied only as
-+  // LIFECYCLE_APPLY allows (default off). Re-apply for codes confirmed just now,
-+  // so a cancellation seen before its booking still lands.
-+  const lifecycle = runLifecycleScan_(sheet);
-+  applyLifecycleFor_(sheet, confirmedCodes);
++  // LIFECYCLE_APPLY allows (default off). A cancellation seen before its booking
++  // lands once the booking row exists.
++  const lifecycle = runLifecycleScan_(sheet); // reconciles the whole ledger, incl. codes confirmed just now
 +  setHeartbeatOpenIssues_('bookings', openParseIssues_().length);
 +
 +  Logger.log(`Sync complete. Added ${newRowsCount} new guest(s). Lifecycle: ${JSON.stringify(lifecycle)}`);
    return newRowsCount;
  }
  
-@@ -261,12 +290,18 @@
+@@ -261,12 +287,18 @@
      // ── DATES ───────────────────────────────────────────────────────────────
      // Parse Danish Dates specifically
      // Pattern looks for: "Indtjekning \n\n tirs. 7. jul."
@@ -101,3 +91,22 @@
      } else {
        // Fallback to English date parsing
        const datePattern = /(\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}|\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}|\b\d{4}-\d{2}-\d{2})/gi;
+@@ -529,7 +561,8 @@
+   const newColIdx = isPrivate
+     ? { Guests: colByName('Guests'), BookingUrl: colByName('BookingUrl'),
+         GuestPhoto: colByName('GuestPhoto'), GuestMessage: colByName('GuestMessage'),
+-        OriginalMessage: colByName('OriginalMessage'), DetectedLangHint: colByName('DetectedLangHint') }
++        OriginalMessage: colByName('OriginalMessage'), DetectedLangHint: colByName('DetectedLangHint'),
++        DatesUnverifiedSince: colByName('DatesUnverifiedSince') }
+     : null;
+ 
+   const guests = [];
+@@ -563,6 +596,8 @@
+       guest.GuestMessage     = newColIdx.GuestMessage     >= 0 ? (row[newColIdx.GuestMessage]     || '') : '';
+       guest.OriginalMessage  = newColIdx.OriginalMessage  >= 0 ? (row[newColIdx.OriginalMessage]  || '') : '';
+       guest.DetectedLangHint = newColIdx.DetectedLangHint >= 0 ? (row[newColIdx.DetectedLangHint] || '') : '';
++      // Lifecycle (Lifecycle.gs): an accepted change whose notice carried no dates.
++      guest.DatesUnverifiedSince = newColIdx.DatesUnverifiedSince >= 0 ? (row[newColIdx.DatesUnverifiedSince] || '') : '';
+     }
+ 
+     guests.push(guest);

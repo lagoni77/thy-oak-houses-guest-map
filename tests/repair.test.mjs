@@ -45,8 +45,8 @@ test('repairStayDatesConfirmed fixes the row and logs old and new values for rol
   assert.deepEqual(s.guestData.data[1].slice(3, 5), ['2026-07-07', '2026-07-12']);
   assert.equal(s.guestData.data[1][9], 5);
   const log = s.book.RepairLog.data;
-  assert.deepEqual(log[0], ['At', 'Row', 'Code', 'OldCheckIn', 'OldCheckOut', 'OldNights', 'NewCheckIn', 'NewCheckOut', 'NewNights']);
-  assert.deepEqual(log[1].slice(1), [2, 'HMAAAAAAA1', '2026-07-07', '2026-07-07', 0, '2026-07-07', '2026-07-12', 5]);
+  assert.deepEqual(log[0], ['At', 'Row', 'Code', 'Field', 'Old', 'New', 'State']);
+  assert.deepEqual(log.slice(1).map((r) => r.slice(1)), [[2, 'HMAAAAAAA1', 'CheckOut', '2026-07-07', '2026-07-12', 'applied'], [2, 'HMAAAAAAA1', 'Nights', 0, 5, 'applied']]);
   assert.equal(s.context.repairStayDatesConfirmed().fixed, 0, 'second run is a no-op');
 });
 

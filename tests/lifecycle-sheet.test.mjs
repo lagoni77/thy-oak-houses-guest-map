@@ -145,14 +145,14 @@ test('every applied lifecycle write is logged with old and new values for rollba
   const s = setup({ messages: [changeMsg('x1', 'HMAAAAAAA1', 'tirs. 3. nov.   fre. 6. nov.'), cancelMsg('c9', 'HMAAAAAAA1', '2026-10-09T12:00:00Z')], mode: 'all' });
   s.run();
   const log = s.book.LifecycleLog.data;
-  assert.deepEqual(log[0], ['At', 'Row', 'Code', 'Field', 'Old', 'New']);
-  assert.deepEqual(log.slice(1).map((r) => r.slice(1)), [[2, 'HMAAAAAAA1', 'Status', '', 'Cancelled']]);
+  assert.deepEqual(log[0], ['At', 'Row', 'Code', 'Field', 'Old', 'New', 'State']);
+  assert.deepEqual(log.slice(1).map((r) => r.slice(1)), [[2, 'HMAAAAAAA1', 'Status', '', 'Cancelled', 'applied']]);
 });
 
 test('date changes log each changed field', () => {
   const s = setup({ messages: [changeMsg('x1', 'HMAAAAAAA1', 'tirs. 3. nov.   fre. 6. nov.')], mode: 'all' });
   s.run();
-  assert.deepEqual(s.book.LifecycleLog.data.slice(1).map((r) => r.slice(3)), [['CheckIn', '2026-11-02', '2026-11-03'], ['CheckOut', '2026-11-05', '2026-11-06']]);
+  assert.deepEqual(s.book.LifecycleLog.data.slice(1).map((r) => r.slice(3)), [['CheckIn', '2026-11-02', '2026-11-03', 'applied'], ['CheckOut', '2026-11-05', '2026-11-06', 'applied']]);
 });
 
 test('dry runs never write the lifecycle log', () => {

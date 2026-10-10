@@ -110,3 +110,16 @@ test('non-confirmation messages inside a confirmation thread are skipped, not pa
   assert.equal(s.guestData.data.length, 2);
   assert.equal(s.beat().openIssues, 0);
 });
+
+test('notice-only accepted change: the keyed feed carries DatesUnverifiedSince; the public feed does not', { skip }, () => {
+  const s = load([
+    confirm('m1', 'HMAAAAAAA1'),
+    createMessage({ id: 'n1', subject: 'Reservationen blev opdateret', date: '2026-10-09T10:00:00Z',
+      body: 'Reservationen blev opdateret\n\nÆndringen af reservationen er accepteret.\n\nhttps://www.airbnb.dk/hosting/reservations/details/HMAAAAAAA1' }),
+  ], 'all');
+  s.sync();
+  const priv = s.feed(true).guests[0];
+  assert.equal(priv.DatesUnverifiedSince, '2026-10-09T10:00:00.000Z');
+  assert.equal(priv.CheckIn, '2026-11-03', 'last known dates kept, never inferred');
+  assert.equal(Object.hasOwn(s.feed(false).guests[0], 'DatesUnverifiedSince'), false);
+});
