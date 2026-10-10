@@ -208,3 +208,10 @@ test('a candidate year with an impossible duration is never chosen over a valid 
 test('year-less dates with no plausible duration in any year are rejected as implausible, not invalid', () => {
   assert.equal(g().parseStayDates_('Indtjekning   Udtjekning\ntirs. 7. jul.   søn. 12. dec.\n', '2026-05-01').reason, 'dates-implausible');
 });
+
+// Live rollout regression: introductory prose precedes the actual date table.
+test('introductory check-in prose does not replace the stay-date headings', () => {
+  const body = 'Send en besked for at bekræfte indtjekningsoplysninger\neller byde gæsten velkommen.\nOplysninger om indtjekning og udtjekning\n\nIndtjekning      Udtjekning\n\n tors. 29. okt.   lør. 31. okt.\n16.00 12.00';
+  const r = g().parseStayDates_(body, '2026-10-09');
+  assert.deepEqual([r.checkIn, r.checkOut], ['2026-10-29', '2026-10-31']);
+});

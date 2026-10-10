@@ -23,8 +23,8 @@ test('stated nights disagreeing with the dates is rejected', () => {
 });
 
 test('the legacy parser returning null or throwing becomes a reason', () => {
-  assert.deepEqual(parse('BROKEN Indtjekning   Udtjekning\ntirs. 7. jul.   søn. 12. jul.\n'), { ok: false, reason: 'parse-failed' });
-  assert.deepEqual(parse('THROW Indtjekning   Udtjekning\ntirs. 7. jul.   søn. 12. jul.\n'), { ok: false, reason: 'parse-error' });
+  assert.deepEqual(parse('BROKEN\nIndtjekning   Udtjekning\ntirs. 7. jul.   søn. 12. jul.\n'), { ok: false, reason: 'parse-failed' });
+  assert.deepEqual(parse('THROW\nIndtjekning   Udtjekning\ntirs. 7. jul.   søn. 12. jul.\n'), { ok: false, reason: 'parse-error' });
 });
 
 test('non-Danish emails keep the legacy parser dates but are still validated', () => {

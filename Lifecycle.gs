@@ -28,6 +28,7 @@ function validDay_(y, m, d) {
   var t = new Date(Date.UTC(y, m - 1, d));
   return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
 }
+function isStayHeaderLine_(line) { return /^\s*(?:Indtjekning|Udtjekning)\s*:?(?:\s+(?:Indtjekning|Udtjekning)\s*:?)?\s*$/i.test(line); }
 function hasStayDateBlock_(body) { return /Indtjekning/i.test(String(body || '')) && /Udtjekning/i.test(String(body || '')); }
 function ymd_(y, m, d) { return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
 function dayMs_(s) { return Date.parse(s + 'T00:00:00Z'); }
@@ -66,6 +67,7 @@ function parseStayDates_(body, emailDay) {
   var inIdx = -1;
   var outIdx = -1;
   for (var i = 0; i < lines.length; i++) {
+    if (!isStayHeaderLine_(lines[i])) continue;
     if (inIdx < 0 && /Indtjekning/i.test(lines[i])) inIdx = i;
     if (outIdx < 0 && /Udtjekning/i.test(lines[i])) outIdx = i;
   }
