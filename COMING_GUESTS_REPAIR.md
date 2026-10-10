@@ -12,10 +12,15 @@ source_ref:
   - "02 Mainframe/99_SYSTEM/Handoffs/TOH_Dashboard_Season_Review_Handoff_2026-10-07.md#coming-guests-review--2026-10-10"
   - "LeonidOS branch fix/coming-guests; guest-map branch fix/coming-guests-lifecycle"
 ---
-# Coming-guests repair — rollout and existing-data repair (STAGED, NOT DEPLOYED)
+# Coming-guests repair — rollout and existing-data repair (DEPLOYED)
 
-Status 2026-10-10 (review round 4): built and tested locally. **No GAS push, no Sheet change, no Airbnb change, no notification.**
-Every step below that touches production needs Brian's explicit approval at that step.
+Status 2026-10-10: deployed under Brian's explicit “Ready to deploy” authorization for the full necessary rollout. The procedure below is retained for future rollouts.
+
+Release: LeonidOS clean master `092bc3f` (668 tests /121 syntax checks); pinned GAS version22, all four uploaded files byte-matched (105 tests). Live confirmation prose exposed a heading ambiguity, fixed in lifecycle commit `9e933ba` by accepting standalone stay-date headings; regression and local real-message replay passed.
+
+Applied70 date repairs,40 cancellations and15 accepted changes with before-images logged. Lifecycle mode is `all`; existing hourly triggers reconcile the whole ledger. Final audit:0 wouldFix and0 missing/unparseable. All16 upcoming arrivals match Airbnb calendar, with0 date mismatches or same-day stays. Signal House collector healthy with0 parse issues; public/private feed boundary verified. Existing iCloud widget updated; native phone rendering/sync remains unverified. Optional calendar-to-Sheet rewrite was not performed.
+
+Private rollback copies: `/tmp/coming-guests-rollout/rollback` and `/tmp/coming-guests-rollout/widget-before.js`.
 
 ## What changes
 
